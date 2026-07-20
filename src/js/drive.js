@@ -147,7 +147,7 @@ async function driveRestore() {
       return;
     }
 
-    snapshot('antes de restaurar desde Drive');
+    snapshot('restaurar desde Drive');
     sessions = payload.sessions;
     save();
     activeSession = makeSession();

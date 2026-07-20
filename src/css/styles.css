@@ -85,3 +85,5 @@ body.modal-open{overflow:hidden}
 .backup-status,.drive-status{margin:6px 0 0;font:10px var(--mono);color:var(--muted)}
 .backup-status.is-warn,.drive-status.is-warn{color:var(--red)}
 .drive-status.is-ok{color:var(--hot)}
+.secondary-button:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--muted)}
+.secondary-button:disabled:hover{border-color:var(--line);color:var(--muted)}

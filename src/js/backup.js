@@ -34,6 +34,31 @@ function snapshot(reason) {
     snaps.unshift({ at: new Date().toISOString(), reason, sessions });
     localStorage.setItem(SNAP_KEY, JSON.stringify(snaps.slice(0, MAX_SNAPSHOTS)));
   } catch { /* sin espacio: no bloqueamos la acción del usuario */ }
+  renderSnapshotStatus();
+}
+
+function agoLabel(iso) {
+  const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1) return 'hace un momento';
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? 'hace 1 día' : `hace ${days} días`;
+}
+
+// El botón "Deshacer" debe explicarse solo: dice qué revertiría, o se apaga.
+function renderSnapshotStatus() {
+  const button = document.querySelector('#restoreSnapshot');
+  const status = document.querySelector('#snapshotStatus');
+  if (!button || !status) return;
+  const snaps = readSnapshots();
+  button.disabled = !snaps.length;
+  if (!snaps.length) {
+    status.textContent = 'Deshacer: nada que revertir por ahora.';
+    return;
+  }
+  status.textContent = `Deshacer: ${snaps[0].reason} (${agoLabel(snaps[0].at)}).`;
 }
 
 async function restoreLastSnapshot() {
@@ -41,14 +66,19 @@ async function restoreLastSnapshot() {
   if (!snaps.length) { await showAlert('Todavía no hay copias automáticas guardadas.'); return; }
   const last = snaps[0];
   const when = new Date(last.at).toLocaleString('es-CO');
-  if (!(await showConfirm(`Copia del ${when}\nMotivo: ${last.reason}\nContiene ${last.sessions.length} sesiones.\n\n¿Restaurarla? Se reemplazarán los datos actuales.`, {danger:true, okText:'Restaurar'}))) return;
-  snapshot('antes de restaurar una copia');
+  const ok = await showConfirm(
+    `Vas a deshacer: ${last.reason} (${agoLabel(last.at)}).\n\n` +
+    `Se volverá al estado del ${when}, con ${last.sessions.length} sesiones. ` +
+    `Lo que hayas registrado después de ese momento se perderá.`,
+    { danger: true, okText: 'Deshacer' });
+  if (!ok) return;
+  snapshot('restaurar una copia');
   sessions = last.sessions;
   save();
   activeSession = makeSession();
   renderActiveSession();
   updateDashboard();
-  await showAlert('Copia restaurada.');
+  await showAlert('Listo, volviste al estado anterior.');
 }
 
 // --- 3. Estado del último respaldo ------------------------------------------
@@ -76,4 +106,5 @@ function renderBackupStatus() {
 // --- Arranque ---------------------------------------------------------------
 requestPersistentStorage();
 renderBackupStatus();
+renderSnapshotStatus();
 document.querySelector('#restoreSnapshot').onclick = restoreLastSnapshot;
