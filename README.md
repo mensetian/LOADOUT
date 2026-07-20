@@ -1,6 +1,8 @@
-# LOADOUT — GymLog
+# LOADOUT
 
 Registro de entrenamiento de fuerza, simple y sin cuentas. Aplicación web estática (HTML + CSS + JS puro) que guarda todo en el navegador (`localStorage`).
+
+> **Nombre:** el proyecto se unifica bajo **LOADOUT**. La clave interna de almacenamiento sigue siendo `gymlog-sessions-v1` a propósito, para no perder los datos ya guardados en tu navegador.
 
 ## Objetivo
 
@@ -17,9 +19,15 @@ Que cada vez que entrenes tengas **a mano tu última referencia** (peso × reps 
 
 ### 01 · CAPTURAR
 - Campo **RUTINA** con autocompletado de nombres ya usados.
-- **Cargar rutina anterior**: precarga los ejercicios de la última sesión con ese nombre.
+- **Cargar rutina anterior**: precarga los ejercicios de la última sesión con ese nombre, con los pesos/reps previos como referencia (placeholder).
 - Cards de ejercicio con sets (kg × reps), añadir/quitar sets y movimientos.
+- **Valores sugeridos:** cada nueva serie hereda el peso y las reps de la serie anterior (edítalos si cambian). Se empieza con una serie y añades las que necesites.
 - **Finalizar sesión** guarda (o actualiza, si estabas editando una sesión vieja).
+
+### Temporizador de descanso
+- Botón **⏱** en la barra superior: activa/desactiva el descanso automático (se recuerda entre sesiones). Tocarlo también arranca un descanso manual.
+- Con auto activado, al anotar las reps de una serie arranca el conteo (90s por defecto; presets 1:00–3:00). Avisa con beep y vibración.
+- Aparece anclado abajo a la izquierda y reserva espacio para no tapar el contenido.
 
 ### 02 · LOG
 - Historial agrupado por sesión: nombre de rutina, fecha y movimientos.
@@ -61,6 +69,17 @@ git push origin master
 ```
 
 En ~1 minuto GitHub Pages actualiza el sitio automáticamente. En el celular, cierra y reabre la app para recibir la actualización (el service worker usa red-primero, así que baja la versión nueva cuando hay conexión).
+
+### Renombrar el proyecto a LOADOUT (carpeta + repo)
+
+El código ya usa el nombre LOADOUT. Para que la carpeta local y el repo de GitHub coincidan:
+
+1. **Repo en GitHub:** Settings → *Repository name* → cambiar `GymLog` por `LOADOUT` → Rename. GitHub redirige la URL vieja automáticamente. La nueva URL de Pages será `https://mensetian.github.io/LOADOUT/`.
+2. **Remote local** (en una terminal, con el repo cerrado en el editor):
+   ```bash
+   git remote set-url origin https://github.com/mensetian/LOADOUT.git
+   ```
+3. **Carpeta local:** cerrar el editor y renombrar `c:\pipe_pc\www\GymLog` → `c:\pipe_pc\www\LOADOUT` desde el Explorador de Windows (no se puede renombrar mientras esté abierta en el editor).
 
 ### Configuración inicial (ya hecha, referencia)
 

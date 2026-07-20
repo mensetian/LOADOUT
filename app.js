@@ -27,9 +27,9 @@ function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textC
 function addExercise(data = {}) {
   $('#sessionEmpty').hidden = true;
   const card = $('#exerciseTemplate').content.firstElementChild.cloneNode(true); $('.exercise-name',card).value = data.name || '';
-  (data.sets?.length ? data.sets : [{},{} ,{}]).forEach(s=>addSet(card,s));
+  (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
   $('.exercise-name',card).oninput = () => updateLast(card); $('.exercise-name',card).onblur = () => updateLast(card);
-  $('.add-set',card).onclick = () => addSet(card); $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; };
+  $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; };
   $('#exerciseList').append(card); updateLast(card);
 }
 function renderActiveSession() {
@@ -70,18 +70,28 @@ function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exer
 function renderProgress() { const name=$('#progressExercise').value; const records=sessions.sort((a,b)=>a.date.localeCompare(b.date)).flatMap(s=>s.exercises.filter(e=>e.name===name).map(e=>({date:s.date,sets:e.sets,max:Math.max(...e.sets.map(x=>x.weight)),volume:e.sets.reduce((t,x)=>t+x.weight*x.reps,0)}))); const root=$('#progressContent'); if(!records.length){root.innerHTML='<p class="no-data">Cuando registres este ejercicio, su avance aparecerá aquí.</p>';return} const last=records.at(-1), first=records[0], diff=last.max-first.max; const bars=records.slice(-8), max=Math.max(...bars.map(r=>r.max),1); root.innerHTML=`<div class="progress-stats"><article class="progress-stat"><span>Tu última carga</span><strong>${last.max} kg</strong></article><article class="progress-stat"><span>Tu mejor marca</span><strong>${Math.max(...records.map(r=>r.max))} kg</strong></article><article class="progress-stat"><span>Cambio total</span><strong>${diff>=0?'+':''}${diff} kg</strong></article></div><article class="chart-card"><h3>Tu carga máxima en el tiempo</h3><p>${escapeHtml(name)} · ${bars.length} entrenamientos recientes</p><div class="bar-chart">${bars.map(r=>`<div class="bar-wrap"><span class="bar-value">${r.max}</span><div class="bar" style="height:${Math.max(8,r.max/max*115)}px"></div><span class="bar-label">${new Date(r.date+'T12:00').toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span></div>`).join('')}</div></article>`; }
 // --- Temporizador de descanso ---
 let restInterval=null, restEnds=0, restDuration=90;
+let restAuto = localStorage.getItem('loadout-rest-auto')!=='0'; // activado por defecto
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
-  restDuration=seconds; restEnds=Date.now()+seconds*1000; $('#restTimer').hidden=false; clearInterval(restInterval);
+  restDuration=seconds; restEnds=Date.now()+seconds*1000; $('#restTimer').hidden=false; document.body.classList.add('rest-active'); clearInterval(restInterval);
   const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); $('#restDisplay').textContent=fmtRest(left);
     if(left<=0){stopRest(); beep(); if(navigator.vibrate)navigator.vibrate([200,100,200]);}};
   tick(); restInterval=setInterval(tick,250);
 }
-function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;}
+function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;document.body.classList.remove('rest-active');}
 function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
-$('#exerciseList').addEventListener('change',e=>{if(e.target.matches('.set-reps')&&e.target.value)startRest();});
+function updateRestToggle(){ $('#restToggle').classList.toggle('is-on',restAuto); $('#restToggle').title=restAuto?'Descanso automático: ACTIVADO':'Descanso automático: desactivado'; }
+$('#restToggle').onclick=()=>{ restAuto=!restAuto; localStorage.setItem('loadout-rest-auto',restAuto?'1':'0'); updateRestToggle(); if(!restAuto)stopRest(); else startRest(); };
+updateRestToggle();
+$('#exerciseList').addEventListener('change',e=>{if(restAuto && e.target.matches('.set-reps')&&e.target.value)startRest();});
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
 $('#restStop').onclick=stopRest;
+
+// --- Bienvenida (hero) solo la primera vez ---
+const HERO_KEY='loadout-hero-seen';
+function collapseHero(){ $('#heroText').hidden=true; $('#inicio').classList.add('hero--min'); }
+if(localStorage.getItem(HERO_KEY)) collapseHero();
+$('#heroClose').onclick=()=>{ collapseHero(); localStorage.setItem(HERO_KEY,'1'); };
 
 // --- Récords personales ---
 function detectPRs(entry){
@@ -111,7 +121,7 @@ $('#loadRoutine').onclick=()=>{
 $('#deleteSession').onclick=()=>{if(confirm('¿Descartar este entrenamiento? No se podrá recuperar.')){sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
-$('#exportData').onclick=()=>{const payload={app:'GymLog',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`gymlog-respaldo-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);};
+$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`loadout-respaldo-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);};
 $('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!confirm(`¿Restaurar ${payload.sessions.length} sesiones? Esto reemplazará los datos actuales de este navegador.`))return;sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();alert('Respaldo restaurado correctamente.');}catch{alert('Este archivo no parece ser un respaldo válido de GymLog.');}finally{event.target.value='';}};
 renderActiveSession();updateDashboard();
 

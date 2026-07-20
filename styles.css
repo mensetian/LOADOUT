@@ -16,12 +16,46 @@
 .edit-session{white-space:nowrap}
 
 /* Temporizador de descanso */
-.rest-timer{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:14px;padding:12px 16px;border:1px solid var(--line);border-radius:6px;background:var(--panel);box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.rest-timer{position:fixed;left:clamp(16px,4vw,32px);bottom:18px;z-index:60;display:flex;align-items:center;gap:14px;padding:12px 16px;border:1px solid var(--hot);border-radius:8px;background:var(--panel);box-shadow:0 10px 34px rgba(0,0,0,.45)}
 .rest-info{display:flex;flex-direction:column;gap:2px}
 .rest-info span{font:10px var(--mono);color:var(--muted);letter-spacing:.1em}
-.rest-info strong{font:800 26px var(--display);line-height:1}
+.rest-info strong{font:800 26px var(--display);line-height:1;color:var(--hot)}
 .rest-actions{display:flex;gap:6px}
-.rest-actions button{padding:8px 10px;border:1px solid var(--line);border-radius:3px;background:transparent;color:var(--ink);font:10px var(--mono);cursor:pointer}
-.rest-actions button:hover{border-color:var(--muted)}
-.rest-stop{color:var(--red,#a83c30)}
-@media(max-width:560px){.rest-timer{width:calc(100% - 24px);justify-content:space-between}}
+.rest-actions button{min-width:44px;min-height:38px;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font:10px var(--mono);cursor:pointer}
+.rest-actions button:hover{border-color:var(--hot);color:var(--hot)}
+.rest-stop{color:var(--red)}
+/* Deja espacio al final para que el timer no tape el contenido */
+body.rest-active .app-shell{padding-bottom:130px}
+/* Toggle del timer en la barra superior */
+.icon-btn.is-on{border-color:var(--hot);color:var(--hot);background:color-mix(in srgb,var(--hot) 14%,transparent)}
+@media(max-width:560px){.rest-timer{left:12px;right:12px;justify-content:space-between;padding:11px 13px}.rest-info strong{font-size:23px}body.rest-active .app-shell{padding-bottom:120px}}
+
+/* === Ajustes de nombre de rutina (fix fuente) === */
+.routine-bar input{font-family:Manrope,Arial,sans-serif}
+
+/* === Fix: el atributo hidden debe ocultar siempre (empty-state usa display:grid) === */
+[hidden]{display:none!important}
+
+/* === Hero descartable === */
+.hero{position:relative}
+.hero-close{position:absolute;top:14px;right:0;width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--muted);font-size:16px;cursor:pointer}
+.hero-close:hover{border-color:var(--hot);color:var(--hot)}
+.hero.hero--min{min-height:auto;justify-content:center;padding:26px 0;border-bottom:1px solid var(--line)}
+.hero.hero--min .hero-close{display:none}
+
+/* === Optimización móvil === */
+@media(max-width:720px){
+  /* Evita el auto-zoom de iOS al enfocar inputs (necesita >=16px) */
+  .set-row input,.filter-row input,.filter-row select,.progress-picker select,.routine-bar input{font-size:16px}
+  .set-row input{height:46px}
+  /* Botón finalizar cómodo para el pulgar */
+  .session-footer{justify-content:stretch}
+  .finish-button{width:100%;padding:18px;font-size:13px;text-align:center}
+  .routine-bar{gap:8px}
+  .routine-bar #loadRoutine{width:100%}
+  /* Objetivos táctiles más grandes */
+  .add-set{padding:12px 0}
+  .remove-set{width:34px;height:34px}
+  .tabs{gap:22px}
+  .tab{padding:16px 0 13px}
+}
