@@ -1,85 +1,142 @@
 # LOADOUT
 
-Registro de entrenamiento de fuerza, simple y sin cuentas. Aplicación web estática (HTML + CSS + JS puro) que guarda todo en el navegador (`localStorage`).
+Registro de entrenamiento de fuerza, simple y sin cuentas. Una web estática
+(HTML + CSS + JavaScript, sin frameworks) que guarda todo en el navegador y
+funciona offline como app instalable.
 
-> **Nombre:** el proyecto se unifica bajo **LOADOUT**. La clave interna de almacenamiento sigue siendo `gymlog-sessions-v1` a propósito, para no perder los datos ya guardados en tu navegador.
+**En vivo:** https://mensetian.github.io/LOADOUT/
 
-## Objetivo
+## Por qué existe
 
-Que cada vez que entrenes tengas **a mano tu última referencia** (peso × reps de la sesión anterior) para aplicar sobrecarga progresiva de forma precisa, sin depender de la memoria ni de una libreta.
+Progresar en fuerza depende de una pregunta que siempre olvidas entre semana:
+*"¿cuánto levanté la última vez?"*. LOADOUT la responde sola. Cada vez que
+registras un ejercicio, te muestra tu referencia anterior para que apliques
+sobrecarga progresiva sin adivinar ni cargar una libreta.
 
-## Función principal
+Decisiones de diseño que marcan el carácter del proyecto:
 
-1. Abres una sesión y le das un **nombre de rutina** (ej. *Pecho*, *Espalda y bíceps*, *Pierna*).
-2. Añades movimientos — con autocompletado de ejercicios que ya registraste — y anotas peso y repeticiones por set.
-3. Bajo cada ejercicio aparece tu **última referencia**: fecha y sets de la vez anterior que lo hiciste.
-4. Al finalizar, la sesión queda en el registro histórico.
+- **Sin cuentas ni servidor.** Tus datos son tuyos y viven en tu dispositivo.
+- **Pensado para el móvil**, que es donde se usa: en el gimnasio, entre series.
+- **Cero build.** Se edita, se hace `git push` y está publicado. Sin `npm`.
+
+## Cómo se usa
+
+1. Abres una sesión y eliges un **nombre de rutina** (*Pecho*, *Espalda y bíceps*,
+   *Pierna*…). El selector recuerda las que ya usaste, con cuándo fue la última vez.
+2. Añades movimientos y anotas peso × reps por serie. Cada serie nueva **hereda**
+   los valores de la anterior, así solo cambias lo que cambia.
+3. Bajo cada ejercicio ves tu **última referencia**. Si cargas una rutina previa,
+   los pesos aparecen como marca a superar.
+4. Al finalizar, la sesión entra al historial y se detectan **récords personales**.
 
 ## Funcionamiento por sección
 
 ### 01 · CAPTURAR
-- Campo **RUTINA** con autocompletado de nombres ya usados.
-- **Cargar rutina anterior**: precarga los ejercicios de la última sesión con ese nombre, con los pesos/reps previos como referencia (placeholder).
-- Cards de ejercicio con sets (kg × reps), añadir/quitar sets y movimientos.
-- **Valores sugeridos:** cada nueva serie hereda el peso y las reps de la serie anterior (edítalos si cambian). Se empieza con una serie y añades las que necesites.
-- **Finalizar sesión** guarda (o actualiza, si estabas editando una sesión vieja).
+- **Selector de rutina** propio: filtra al escribir y muestra, por cada rutina, hace
+  cuánto la hiciste, cuántos movimientos tenía y cuántas veces la repetiste. Sigue
+  admitiendo nombres nuevos escritos a mano.
+- **Cargar rutina anterior** — precarga los ejercicios de tu última sesión con ese
+  nombre, con los pesos/reps previos como referencia.
+- **Limpiar** — vacía los movimientos de la sesión en curso.
+- **Valores heredados** — cada serie parte de la anterior; empiezas con una y añades.
+- **Finalizar sesión** — guarda, o actualiza si estabas editando una sesión vieja.
 
 ### Temporizador de descanso
-- Botón **⏱** en la barra superior: activa/desactiva el descanso automático (se recuerda entre sesiones). Tocarlo también arranca un descanso manual.
-- Con auto activado, al anotar las reps de una serie arranca el conteo (90s por defecto; presets 1:00–3:00). Avisa con beep y vibración.
-- Aparece anclado abajo a la izquierda y reserva espacio para no tapar el contenido.
+- Botón **⏱** en la barra superior: inicia o detiene un descanso manual.
+- Además arranca **solo** al anotar las reps de una serie (90 s; presets 1:00–3:00).
+- Al terminar, suena un beep y vibra. Se ancla abajo y reserva espacio para no tapar
+  nada.
 
 ### 02 · LOG
-- Historial agrupado por sesión: nombre de rutina, fecha y movimientos.
-- Botón **Editar** en cada sesión para corregir datos viejos.
-- Filtro por texto (rutina o ejercicio) y por período (7/30 días/todo).
-- **Exportar / Importar**: respaldo en archivo JSON.
+- Historial **agrupado por sesión**: rutina, fecha y movimientos, con botón **Editar**
+  para corregir sesiones viejas.
+- Filtro por texto (rutina o ejercicio) y por período.
+- Herramientas de respaldo: **Exportar / Importar** JSON, **Deshacer** y **Google Drive**
+  (ver más abajo).
 
 ### 03 · MÉTRICAS
-- Selector de ejercicio con: última carga, mejor marca, cambio total.
-- Gráfico de barras de carga máxima en las últimas 8 sesiones.
+- Por ejercicio: última carga, mejor marca y cambio total.
+- Gráfico de carga máxima en las últimas 8 sesiones.
 
-## Datos
+## Datos y respaldos
 
-- Todo se guarda en `localStorage` bajo la clave `gymlog-sessions-v1`.
-- Estructura: `{ id, date, name, exercises: [{ name, sets: [{ weight, reps }] }] }`.
-- Sin servidor, sin cuentas: el respaldo/portabilidad es vía exportar/importar JSON.
+Todo vive en el `localStorage` del navegador. Hay varias capas de protección, de la
+más automática a la más segura:
 
-## Estructura
+| Capa | Te protege de | No te protege de |
+|---|---|---|
+| **Almacenamiento persistente** (automático) | Que el navegador borre datos al liberar espacio | Borrado manual · perder el dispositivo |
+| **Deshacer** (copias automáticas locales) | Equivocarte al borrar, importar o restaurar | "Borrar datos de navegación" · perder el dispositivo |
+| **Exportar JSON** | Todo lo anterior | Que olvides hacerlo |
+| **Google Drive** | Todo, incluido perder el teléfono | Editar en dos sitios a la vez sin restaurar |
+
+- **Deshacer** revierte la última acción destructiva (borrar sesión, importar,
+  restaurar). Guarda las últimas 5; se desactiva cuando no hay nada que revertir.
+- La pestaña LOG avisa hace cuánto fue tu último respaldo y lo marca en rojo a los 7 días.
+- **Instala la PWA:** Safari borra el almacenamiento de sitios que no abres en ~7 días;
+  las apps de la pantalla de inicio quedan fuera de esa regla.
+
+Estructura de una sesión guardada:
+
+```json
+{ "id": "…", "date": "2026-07-20", "name": "Pecho",
+  "exercises": [ { "name": "Press banca", "sets": [ { "weight": 80, "reps": 8 } ] } ] }
+```
+
+> La clave interna sigue siendo `gymlog-sessions-v1` a propósito: renombrarla borraría
+> los datos que ya tengas guardados.
+
+### Sincronización con Google Drive (opcional)
+
+Respaldo automático en tu propia cuenta, sin servidor de por medio. Está **desactivado**
+hasta que pegues un *Client ID* de Google en `src/js/config.js`. Guía completa, con sus
+límites: **[docs/DRIVE.md](docs/DRIVE.md)**.
+
+Regla de oro: **al estrenar un dispositivo, pulsa *Conectar* y trae los datos antes de
+entrenar.** La app compara Drive con el dispositivo y pausa el guardado automático si
+no está al día, para que un móvil recién instalado no pise tu historial.
+
+## Estructura del proyecto
 
 ```
 LOADOUT/
-├── index.html          ← única página: shell, templates y datalists
+├── index.html          ← única página: shell, plantillas y diálogos
 ├── manifest.json       ← identidad PWA (nombre, icono, colores)
 ├── sw.js               ← service worker: caché offline
-├── README.md
 ├── .gitignore
 ├── docs/
 │   ├── ROADMAP.md      ← estado y próximos pasos
-│   └── DRIVE.md        ← cómo activar la sincronización con Drive
+│   └── DRIVE.md        ← activar la sincronización con Drive
 └── src/
     ├── css/styles.css  ← estilos, tema claro/oscuro, responsive
     ├── js/
     │   ├── config.js   ← Client ID de Google (vacío = Drive desactivado)
-    │   ├── app.js      ← lógica: sesiones, historial, métricas, timer
+    │   ├── app.js      ← sesiones, historial, métricas, timer, rutina
     │   ├── backup.js   ← durabilidad local: persistencia, copias, avisos
-    │   └── drive.js    ← sincronización opcional con Google Drive
+    │   └── drive.js    ← sincronización opcional con Drive
     └── img/icon.svg    ← icono de la app
 ```
 
-**Por qué estos tres archivos viven en la raíz y no en `src/`:**
+**Por qué tres archivos viven en la raíz y no en `src/`:**
 
 | Archivo | Motivo |
 |---|---|
 | `index.html` | GitHub Pages sirve el sitio desde la raíz del repo. |
-| `sw.js` | El *scope* de un service worker no puede subir por encima de su carpeta. Desde `src/js/` solo podría cachear `src/js/**`, y la PWA perdería el modo offline. Pages no permite enviar la cabecera `Service-Worker-Allowed` que lo cambiaría. |
-| `manifest.json` | `start_url` y `scope` se resuelven **relativos al manifest**. En la raíz apuntan a la app; moverlo obligaría a rutas `../` frágiles. |
+| `sw.js` | El *scope* de un service worker no puede subir por encima de su carpeta; desde `src/js/` solo cachearía `src/js/**` y se perdería el modo offline. |
+| `manifest.json` | `start_url` y `scope` se resuelven relativos al manifest; en la raíz apuntan a la app sin rutas `../` frágiles. |
 
-## Despliegue (GitHub Pages)
+## Desarrollo
 
-La app está publicada en **https://mensetian.github.io/LOADOUT/** desde el repo `mensetian/LOADOUT` (branch `master`, carpeta raíz).
+No hay dependencias ni compilación. Para probar en local hace falta servir por HTTP
+(el service worker no arranca desde `file://`):
 
-### Publicar cambios
+```bash
+python -m http.server 8000    # o: npx serve .
+```
+
+Y abrir http://localhost:8000.
+
+### Publicar
 
 ```bash
 git add -A
@@ -87,42 +144,10 @@ git commit -m "mensaje"
 git push origin master
 ```
 
-En ~1 minuto GitHub Pages actualiza el sitio automáticamente. En el celular, cierra y reabre la app para recibir la actualización (el service worker usa red-primero, así que baja la versión nueva cuando hay conexión).
-
-### Nombre unificado
-
-Carpeta local, repo de GitHub, código y documentación usan **LOADOUT**. La URL vieja
-(`.../GymLog/`) queda redirigida por GitHub, pero la dirección buena es la de arriba:
-si tenías la PWA instalada desde la URL vieja, reinstálala desde la nueva.
-
-### Configuración inicial (ya hecha, referencia)
-
-1. Repo en GitHub con el código en `master`.
-2. **Settings → Pages → Source:** "Deploy from a branch", branch `master`, carpeta `/ (root)` → Save.
-
-## Instalación como app (PWA)
-
-1. Abrir https://mensetian.github.io/LOADOUT/ en Chrome (Android) o Safari (iPhone).
-2. **Android:** menú ⋮ → *Instalar aplicación* (o el aviso "Añadir a pantalla de inicio").
-   **iPhone:** botón compartir □↑ → *Añadir a pantalla de inicio*.
-3. Se abre como app independiente y funciona **offline** (los archivos quedan cacheados por `sw.js`).
-
-> **Nota:** el service worker requiere HTTP(S); abrir `index.html` con doble clic (`file://`) funciona pero sin modo offline ni instalación. Para probar en local: `npx serve .` y abrir `http://localhost:3000`.
-
-### Datos y respaldos
-
-Los datos viven en el `localStorage` de **cada dispositivo/navegador**. Hay tres capas de protección:
-
-| Capa | Qué protege | Qué **no** protege |
-|---|---|---|
-| **Almacenamiento persistente** (automático) | Que el navegador borre los datos al liberar espacio | Borrado manual, perder el dispositivo |
-| **Copias locales** (automáticas, botón *Copia local*) | Borrados accidentales dentro de la app: eliminar una sesión, importar mal | "Borrar datos de navegación", perder el dispositivo |
-| **Exportar JSON** / **Google Drive** | Todo lo anterior, incluido perder el teléfono | — |
-
-- La pestaña **LOG** avisa cuánto hace del último respaldo real y marca en rojo si pasan 7 días.
-- **Instalar la PWA importa:** Safari borra el almacenamiento de sitios que no abres en ~7 días; las apps añadidas a la pantalla de inicio quedan fuera de esa regla.
-- Para activar Drive: **[docs/DRIVE.md](docs/DRIVE.md)**.
+GitHub Pages actualiza el sitio en ~1 minuto. Al cambiar archivos de `src/`, sube el
+número de `CACHE` en [sw.js](sw.js) para que los dispositivos descarten la versión
+cacheada; en el móvil, cierra y reabre la app para recibirla.
 
 ## Roadmap
 
-Estado del proyecto y próximos pasos: **[docs/ROADMAP.md](docs/ROADMAP.md)**.
+Estado y próximos pasos: **[docs/ROADMAP.md](docs/ROADMAP.md)**.
