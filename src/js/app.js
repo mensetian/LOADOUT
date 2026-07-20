@@ -81,11 +81,45 @@ function startRest(seconds=restDuration){
 function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;document.body.classList.remove('rest-active');}
 function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 function updateRestToggle(){ $('#restToggle').classList.toggle('is-on',restAuto); $('#restToggle').title=restAuto?'Descanso automático: ACTIVADO':'Descanso automático: desactivado'; }
-$('#restToggle').onclick=()=>{ restAuto=!restAuto; localStorage.setItem('loadout-rest-auto',restAuto?'1':'0'); updateRestToggle(); if(!restAuto)stopRest(); else startRest(); };
+$('#restToggle').onclick=()=>{ restAuto=!restAuto; localStorage.setItem('loadout-rest-auto',restAuto?'1':'0'); updateRestToggle(); if(!restAuto)stopRest(); };
 updateRestToggle();
 $('#exerciseList').addEventListener('change',e=>{if(restAuto && e.target.matches('.set-reps')&&e.target.value)startRest();});
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
 $('#restStop').onclick=stopRest;
+
+// --- Arrastrar el temporizador de descanso y recordar su posición ---
+const REST_POS_KEY='loadout-rest-pos';
+function clampRestPos(left,top){
+  const el=$('#restTimer'), pad=8; const w=el.offsetWidth||220, h=el.offsetHeight||70;
+  const maxLeft=window.innerWidth-w-pad, maxTop=window.innerHeight-h-pad;
+  return {left:Math.min(Math.max(pad,left),Math.max(pad,maxLeft)), top:Math.min(Math.max(pad,top),Math.max(pad,maxTop))};
+}
+function applyRestPos(pos){
+  const el=$('#restTimer'); if(!pos)return;
+  el.style.left=pos.left+'px'; el.style.top=pos.top+'px'; el.style.bottom='auto'; el.style.right='auto';
+}
+(function initRestDrag(){
+  const el=$('#restTimer');
+  const saved=JSON.parse(localStorage.getItem(REST_POS_KEY)||'null');
+  if(saved) applyRestPos(saved);
+  let dragging=false, offX=0, offY=0, moved=false;
+  el.addEventListener('pointerdown',e=>{
+    if(e.target.closest('button'))return;
+    dragging=true; moved=false; el.setPointerCapture(e.pointerId);
+    const rect=el.getBoundingClientRect(); offX=e.clientX-rect.left; offY=e.clientY-rect.top;
+    el.classList.add('dragging');
+  });
+  el.addEventListener('pointermove',e=>{
+    if(!dragging)return; moved=true;
+    const pos=clampRestPos(e.clientX-offX,e.clientY-offY); applyRestPos(pos);
+  });
+  const endDrag=e=>{
+    if(!dragging)return; dragging=false; el.classList.remove('dragging');
+    if(moved){ const rect=el.getBoundingClientRect(); const pos=clampRestPos(rect.left,rect.top); applyRestPos(pos); localStorage.setItem(REST_POS_KEY,JSON.stringify(pos)); }
+  };
+  el.addEventListener('pointerup',endDrag); el.addEventListener('pointercancel',endDrag);
+  window.addEventListener('resize',()=>{ const saved=JSON.parse(localStorage.getItem(REST_POS_KEY)||'null'); if(saved){ const pos=clampRestPos(saved.left,saved.top); applyRestPos(pos); } });
+})();
 
 // --- Bienvenida (hero) solo la primera vez ---
 const HERO_KEY='loadout-hero-seen';
@@ -108,7 +142,7 @@ function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':
 
 $('#today').textContent=new Intl.DateTimeFormat('es-CO',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
 $('#heroDate').textContent=new Intl.DateTimeFormat('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
-$('#startSession').onclick=()=>{activeSession=makeSession();renderActiveSession();document.querySelector('.tabs').scrollIntoView({behavior:'smooth'});}; $('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
+$('#startSession').onclick=()=>{activeSession=makeSession();renderActiveSession();addExercise();document.querySelector('.tabs').scrollIntoView({behavior:'smooth'});$('.exercise-name')?.focus();}; $('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
 $('#sessionName').oninput=()=>{if(activeSession)activeSession.name=$('#sessionName').value;};
 $('#loadRoutine').onclick=()=>{
   const prev=lastSessionByRoutine($('#sessionName').value);
