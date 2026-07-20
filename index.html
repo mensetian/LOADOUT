@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#121212"/><link rel="manifest" href="manifest.json"/><link rel="icon" href="icon.svg" type="image/svg+xml"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="LOADOUT"/>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#121212"/><link rel="manifest" href="manifest.json"/><link rel="icon" href="src/img/icon.svg" type="image/svg+xml"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="LOADOUT"/>
   <title>LOADOUT — Registro de entrenamiento</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="src/css/styles.css">
 </head>
 <body>
 <main class="app-shell">
@@ -20,5 +20,5 @@
 <datalist id="routineNames"></datalist><datalist id="exerciseNames"></datalist>
 <template id="exerciseTemplate"><article class="exercise-card"><div class="exercise-head"><div><input class="exercise-name" list="exerciseNames" autocomplete="off" placeholder="Ej. Peso muerto"/><p class="last-time"></p></div><button class="icon-btn remove-exercise" title="Quitar movimiento">×</button></div><div class="sets"><div class="set-labels"><span>SET</span><span>LOAD / KG</span><span>REPS</span><span></span></div><div class="set-rows"></div></div><button class="add-set">+ AÑADIR SET</button></article></template>
 <template id="setTemplate"><div class="set-row"><span class="set-number"></span><input class="set-weight" inputmode="decimal" type="number" min="0" step="0.5" placeholder="kg"/><input class="set-reps" inputmode="numeric" type="number" min="0" step="1" placeholder="reps"/><button class="remove-set" title="Quitar set">×</button></div></template>
-<script src="app.js"></script>
+<script src="src/js/app.js"></script>
 </body></html>

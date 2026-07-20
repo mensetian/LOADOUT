@@ -1,5 +1,6 @@
-const CACHE = 'loadout-v1';
-const ASSETS = ['./', './index.html', './app.js', './styles.css', './manifest.json', './icon.svg'];
+// Subir la versión invalida la caché anterior en todos los dispositivos.
+const CACHE = 'loadout-v2';
+const ASSETS = ['./', './index.html', './manifest.json', './src/css/styles.css', './src/js/app.js', './src/img/icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

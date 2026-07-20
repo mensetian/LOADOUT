@@ -1,0 +1,17 @@
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# Dependencias / build (por si más adelante se añade tooling)
+node_modules/
+dist/
+.cache/
+
+# Respaldos exportados desde la app
+loadout-respaldo-*.json

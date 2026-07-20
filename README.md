@@ -45,16 +45,30 @@ Que cada vez que entrenes tengas **a mano tu última referencia** (peso × reps 
 - Estructura: `{ id, date, name, exercises: [{ name, sets: [{ weight, reps }] }] }`.
 - Sin servidor, sin cuentas: el respaldo/portabilidad es vía exportar/importar JSON.
 
-## Archivos
+## Estructura
 
-| Archivo | Rol |
+```
+LOADOUT/
+├── index.html          ← única página: shell, templates y datalists
+├── manifest.json       ← identidad PWA (nombre, icono, colores)
+├── sw.js               ← service worker: caché offline
+├── README.md
+├── .gitignore
+├── docs/
+│   └── ROADMAP.md      ← estado y próximos pasos
+└── src/
+    ├── css/styles.css  ← estilos, tema claro/oscuro, responsive
+    ├── js/app.js       ← lógica: sesiones, historial, métricas, timer, backup
+    └── img/icon.svg    ← icono de la app
+```
+
+**Por qué estos tres archivos viven en la raíz y no en `src/`:**
+
+| Archivo | Motivo |
 |---|---|
-| `index.html` | Estructura, templates de ejercicio/set, datalists |
-| `app.js` | Toda la lógica (sesiones, historial, métricas, backup) |
-| `styles.css` | Estilos, tema claro/oscuro |
-| `manifest.json` | Metadatos de la PWA (nombre, icono, colores) |
-| `sw.js` | Service worker: caché offline (red-primero, caché de respaldo) |
-| `icon.svg` | Icono de la app |
+| `index.html` | GitHub Pages sirve el sitio desde la raíz del repo. |
+| `sw.js` | El *scope* de un service worker no puede subir por encima de su carpeta. Desde `src/js/` solo podría cachear `src/js/**`, y la PWA perdería el modo offline. Pages no permite enviar la cabecera `Service-Worker-Allowed` que lo cambiaría. |
+| `manifest.json` | `start_url` y `scope` se resuelven **relativos al manifest**. En la raíz apuntan a la app; moverlo obligaría a rutas `../` frágiles. |
 
 ## Despliegue (GitHub Pages)
 
@@ -70,16 +84,19 @@ git push origin master
 
 En ~1 minuto GitHub Pages actualiza el sitio automáticamente. En el celular, cierra y reabre la app para recibir la actualización (el service worker usa red-primero, así que baja la versión nueva cuando hay conexión).
 
-### Renombrar el proyecto a LOADOUT (carpeta + repo)
+### Renombrar el proyecto a LOADOUT — pendiente: el repo
 
-El código ya usa el nombre LOADOUT. Para que la carpeta local y el repo de GitHub coincidan:
+- ✅ **Carpeta local:** ya es `c:\pipe_pc\www\LOADOUT`.
+- ✅ **Código y documentación:** ya usan LOADOUT.
+- ⬜ **Repo en GitHub:** sigue siendo `GymLog`. Para unificarlo:
 
-1. **Repo en GitHub:** Settings → *Repository name* → cambiar `GymLog` por `LOADOUT` → Rename. GitHub redirige la URL vieja automáticamente. La nueva URL de Pages será `https://mensetian.github.io/LOADOUT/`.
-2. **Remote local** (en una terminal, con el repo cerrado en el editor):
+1. En GitHub: **Settings → Repository name** → cambiar `GymLog` por `LOADOUT` → *Rename*.
+   GitHub redirige la URL vieja automáticamente. La nueva URL de Pages pasa a ser
+   `https://mensetian.github.io/LOADOUT/` (y habrá que reinstalar la PWA desde la nueva dirección).
+2. Actualizar el remote local:
    ```bash
    git remote set-url origin https://github.com/mensetian/LOADOUT.git
    ```
-3. **Carpeta local:** cerrar el editor y renombrar `c:\pipe_pc\www\GymLog` → `c:\pipe_pc\www\LOADOUT` desde el Explorador de Windows (no se puede renombrar mientras esté abierta en el editor).
 
 ### Configuración inicial (ya hecha, referencia)
 
@@ -100,17 +117,6 @@ El código ya usa el nombre LOADOUT. Para que la carpeta local y el repo de GitH
 - Los datos viven en el `localStorage` de **cada dispositivo/navegador** — el celular y el PC no se sincronizan entre sí.
 - Usa **Exportar datos** (pestaña LOG) periódicamente como respaldo, e **Importar datos** para restaurar o migrar a otro dispositivo.
 
-## Ideas futuras (roadmap)
+## Roadmap
 
-- ✅ ~~**Precargar marcas a superar**~~: al cargar rutina anterior, los pesos/reps previos aparecen como placeholder en cada set.
-- ✅ ~~**PRs automáticos**~~: al guardar, se detectan récords de carga máxima por ejercicio y se celebran con el antes/después.
-- ✅ ~~**Temporizador de descanso**~~: barra flotante que auto-inicia al anotar reps (90s), presets 1:00–3:00, beep y vibración.
-- ✅ ~~**PWA**~~: manifest + service worker con caché offline, instalable y publicada en GitHub Pages.
-- **Plantillas de rutina**: definir rutinas fijas (día A/B/C) independientes de las sesiones.
-- **Notas por ejercicio/sesión** (sensaciones, técnica, dolor).
-- **RPE / RIR** por set para gestionar intensidad.
-- **Gráficos de volumen semanal** por grupo muscular.
-- **Calendario/heatmap** de asistencia estilo GitHub.
-- **Duplicar sesión** desde el historial con un tap.
-- **Unidades lb/kg** configurables.
-- **Sincronización opcional** (ej. exportar a Google Drive) manteniendo el modo sin cuenta.
+Estado del proyecto y próximos pasos: **[docs/ROADMAP.md](docs/ROADMAP.md)**.
