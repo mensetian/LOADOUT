@@ -128,6 +128,7 @@ function collectSession() {
 }
 async function finishSession() {
   const entry=collectSession(); if(!entry.exercises.length){ await showAlert('Añade al menos un ejercicio y una serie antes de guardar.'); return; }
+  entry.updatedAt=new Date().toISOString(); // sella la edición para resolver conflictos al fusionar con Drive
   const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
   await showAlert(prs.length?`🏆 ¡NUEVO RÉCORD PERSONAL!\n\n${prs.join('\n')}\n\nEntrenamiento guardado.`:'Entrenamiento guardado. Tu siguiente marca empieza aquí.');
 }

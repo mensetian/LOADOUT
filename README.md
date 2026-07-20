@@ -68,7 +68,7 @@ más automática a la más segura:
 | **Almacenamiento persistente** (automático) | Que el navegador borre datos al liberar espacio | Borrado manual · perder el dispositivo |
 | **Deshacer** (copias automáticas locales) | Equivocarte al borrar, importar o restaurar | "Borrar datos de navegación" · perder el dispositivo |
 | **Exportar JSON** | Todo lo anterior | Que olvides hacerlo |
-| **Google Drive** | Todo, incluido perder el teléfono | Editar en dos sitios a la vez sin restaurar |
+| **Google Drive** | Todo, incluido perder el teléfono | Propagar un borrado entre dispositivos |
 
 - **Deshacer** revierte la última acción destructiva (borrar sesión, importar,
   restaurar). Guarda las últimas 5; se desactiva cuando no hay nada que revertir.
@@ -92,9 +92,9 @@ Respaldo automático en tu propia cuenta, sin servidor de por medio. Está **des
 hasta que pegues un *Client ID* de Google en `src/js/config.js`. Guía completa, con sus
 límites: **[docs/DRIVE.md](docs/DRIVE.md)**.
 
-Regla de oro: **al estrenar un dispositivo, pulsa *Conectar* y trae los datos antes de
-entrenar.** La app compara Drive con el dispositivo y pausa el guardado automático si
-no está al día, para que un móvil recién instalado no pise tu historial.
+Al sincronizar, los dos historiales se **fusionan por id de sesión**: nunca se pierde una
+sesión, aunque entrenes en el móvil y en el PC. Se sincroniza solo al terminar cada
+entrenamiento, o a mano con **Sincronizar**.
 
 ## Estructura del proyecto
 

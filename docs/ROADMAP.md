@@ -9,6 +9,8 @@
 - ✅ **Temporizador de descanso** — activable desde la barra superior, presets 1:00–3:00, beep y vibración.
 - ✅ **Valores sugeridos** — cada serie nueva hereda peso y reps de la anterior.
 - ✅ **PWA** — manifest + service worker con caché offline, instalable y publicada en GitHub Pages.
+- ✅ **Respaldo en capas** — almacenamiento persistente, copias locales (Deshacer) y aviso de antigüedad.
+- ✅ **Sincronización con Google Drive** — opcional, sin cuenta propia, con fusión por id de sesión.
 
 ## Siguiente
 
@@ -22,7 +24,6 @@
 - **Gráficos de volumen semanal** por grupo muscular.
 - **Calendario/heatmap** de asistencia estilo GitHub.
 - **Unidades lb/kg** configurables.
-- **Sincronización opcional** (ej. exportar a Google Drive) manteniendo el modo sin cuenta.
 
 ## Deuda técnica
 

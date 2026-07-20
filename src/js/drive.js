@@ -12,12 +12,6 @@
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_FILE_KEY = 'loadout-drive-file-id';
 const DRIVE_FILE_NAME = 'loadout-respaldo.json';
-// Este dispositivo solo puede subir automáticamente cuando se ha puesto al día
-// con Drive (restaurando, o guardando a mano a sabiendas). Sin esta marca, un
-// móvil recién instalado subiría su historial vacío y pisaría el del PC.
-const DRIVE_READY_KEY = 'loadout-drive-ready';
-const driveReady = () => localStorage.getItem(DRIVE_READY_KEY) === '1';
-const markDriveReady = () => localStorage.setItem(DRIVE_READY_KEY, '1');
 
 let driveToken = null;
 let driveTokenClient = null;
@@ -148,18 +142,69 @@ async function readDriveBackup(fileId, retry) {
   return Array.isArray(payload?.sessions) ? payload : null;
 }
 
-function applyDriveBackup(payload) {
-  snapshot('restaurar desde Drive');
-  sessions = payload.sessions;
+// --- Fusión por id ----------------------------------------------------------
+// La union de dos historiales nunca pierde una sesión. Si la misma sesión (mismo
+// id) existe en ambos lados, gana la editada más tarde. Como tie-break sin sello
+// de edición, se usa la fecha del entrenamiento.
+function sessionStamp(s) { return s.updatedAt || `${s.date}T00:00:00.000Z`; }
+function mergeSessions(local, remote) {
+  const byId = new Map();
+  // Recorre remoto primero y local después: con '>=' el local gana los empates.
+  for (const s of [...remote, ...local]) {
+    const prev = byId.get(s.id);
+    if (!prev || sessionStamp(s) >= sessionStamp(prev)) byId.set(s.id, s);
+  }
+  return [...byId.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+// Comparación estable (independiente del orden) para saber si algo cambió.
+const canonSessions = list => JSON.stringify([...list].sort((a, b) => a.id.localeCompare(b.id)));
+const sameSessions = (a, b) => canonSessions(a) === canonSessions(b);
+
+function adoptSessions(merged, reason) {
+  snapshot(reason);
+  sessions = merged;
   save();
   activeSession = makeSession();
   renderActiveSession();
   updateDashboard();
-  markDriveReady();
-  setDriveStatus(`Restaurado desde Drive · ${payload.sessions.length} sesiones.`, 'is-ok');
 }
 
-// --- Restaurar --------------------------------------------------------------
+// --- Sincronizar (bajar + fusionar + subir) ---------------------------------
+// Núcleo de la sincronización: trae lo de Drive, lo une con lo local y sube la
+// unión. Así ningún guardado pisa datos del otro dispositivo.
+async function driveSync({ silent, retry }) {
+  const fileId = await findDriveFileId(retry);
+  if (fileId === undefined) return; // reintentando tras re-autorizar
+
+  let combined = false;
+  if (fileId) {
+    const payload = await readDriveBackup(fileId, retry);
+    if (payload === undefined) return;
+    if (!payload) {
+      if (!silent) setDriveStatus('El respaldo de Drive no es legible.', 'is-warn');
+      return;
+    }
+    const merged = mergeSessions(sessions, payload.sessions);
+    if (!sameSessions(merged, sessions)) {
+      adoptSessions(merged, 'sincronizar con Drive');
+      combined = true;
+    }
+  }
+
+  await driveSave({ silent: true }); // sube la unión ya reconciliada
+  setDriveStatus(`Sincronizado · ${sessions.length} sesiones.`, 'is-ok');
+  if (!silent) {
+    await showAlert(combined
+      ? `Listo. Se combinaron los dos lados: ahora tienes ${sessions.length} sesiones en este dispositivo y en Drive.`
+      : 'Todo sincronizado. No había cambios nuevos.');
+  }
+}
+
+const manualSync = () => driveSync({ silent: false, retry: manualSync }).catch(e => setDriveStatus(`No se pudo sincronizar (${e.message}).`, 'is-warn'));
+
+// --- Restaurar (forzar: reemplazar lo local con lo de Drive) ----------------
+// Escotilla de emergencia. A diferencia de sincronizar, aquí SÍ se descarta lo
+// local; útil si este dispositivo tiene datos erróneos que no quieres propagar.
 async function driveRestore() {
   setDriveStatus('Buscando respaldo…');
   try {
@@ -172,69 +217,27 @@ async function driveRestore() {
     if (!payload) { setDriveStatus('El archivo de Drive no es un respaldo válido.', 'is-warn'); return; }
 
     const ok = await showConfirm(
-      `En Drive hay ${payload.sessions.length} sesiones y en este dispositivo tienes ${sessions.length}.\n\n` +
-      `Se reemplazarán los datos de este dispositivo por los de Drive.`,
-      { danger: true, okText: 'Restaurar' });
+      `Forzar restauración: se DESCARTAN las ${sessions.length} sesiones de este dispositivo y se dejan las ${payload.sessions.length} de Drive.\n\n` +
+      `Si solo quieres unir ambos lados sin perder nada, usa "Sincronizar".`,
+      { danger: true, okText: 'Reemplazar' });
     if (!ok) { setDriveStatus('Restauración cancelada.'); return; }
 
-    applyDriveBackup(payload);
+    adoptSessions([...payload.sessions], 'restaurar desde Drive');
+    setDriveStatus(`Restaurado desde Drive · ${sessions.length} sesiones.`, 'is-ok');
     await showAlert('Datos restaurados desde tu Google Drive.');
   } catch (error) {
     setDriveStatus(`No se pudo restaurar (${error.message}).`, 'is-warn');
   }
 }
 
-// --- Al conectar: comparar antes de dar por bueno este dispositivo ----------
-// Conectar ya no es un gesto mudo. Si Drive tiene más datos que este
-// dispositivo, se ofrece traerlos en vez de dejar que se pisen luego.
-async function reviewDriveState() {
-  setDriveStatus('Comprobando Drive…');
-  try {
-    const fileId = await findDriveFileId(reviewDriveState);
-    if (fileId === undefined) return;
-    if (!fileId) {
-      markDriveReady();
-      setDriveStatus('Conectado. Aún no hay respaldo: pulsa Guardar.', 'is-ok');
-      return;
-    }
-
-    const payload = await readDriveBackup(fileId, reviewDriveState);
-    if (payload === undefined) return;
-    if (!payload) { setDriveStatus('Conectado, pero el respaldo de Drive no es legible.', 'is-warn'); return; }
-
-    const remote = payload.sessions.length;
-    if (remote > sessions.length) {
-      const ok = await showConfirm(
-        `En tu Drive hay un respaldo con ${remote} sesiones, y en este dispositivo solo tienes ${sessions.length}.\n\n` +
-        `¿Traer los datos de Drive a este dispositivo?`,
-        { okText: 'Traer datos' });
-      if (ok) { applyDriveBackup(payload); return; }
-      // Sin traerlos, este dispositivo NO puede subir solo: pisaría el respaldo.
-      setDriveStatus(`Conectado. Drive tiene ${remote} sesiones sin traer; el guardado automático queda en pausa.`, 'is-warn');
-      return;
-    }
-
-    markDriveReady();
-    setDriveStatus('Conectado y al día.', 'is-ok');
-  } catch (error) {
-    setDriveStatus(`Conectado, pero no pude comprobar Drive (${error.message}).`, 'is-warn');
-  }
-}
-
-// Llamado por app.js al terminar una sesión. Solo sube si este dispositivo ya
-// está al día con Drive; si no, callaría un respaldo mayor.
+// Llamado por app.js al terminar una sesión: fusiona y sube en segundo plano.
 function driveAutoSync() {
   if (!driveEnabled() || !driveToken) return;
-  if (!driveReady()) {
-    setDriveStatus('Guardado automático en pausa: trae primero los datos de Drive.', 'is-warn');
-    return;
-  }
-  driveSave({ silent: true });
+  driveSync({ silent: true, retry: driveAutoSync }).catch(() => {});
 }
 
 // --- Arranque ---------------------------------------------------------------
-// Guardar a mano es un gesto deliberado: marca este dispositivo como la fuente buena.
-document.querySelector('#driveConnect').onclick = () => withDriveToken(reviewDriveState);
-document.querySelector('#driveSave').onclick = () => withDriveToken(async () => { markDriveReady(); await driveSave(); });
+document.querySelector('#driveConnect').onclick = () => withDriveToken(manualSync);
+document.querySelector('#driveSave').onclick = () => withDriveToken(manualSync);
 document.querySelector('#driveRestore').onclick = () => withDriveToken(driveRestore);
 initDrive();
