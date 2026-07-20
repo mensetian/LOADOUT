@@ -23,12 +23,12 @@ function openDialog(message, {okText='Aceptar', cancelText=null, danger=false} =
   });
 }
 function showAlert(message) { return openDialog(message); }
-function showConfirm(message, opts = {}) { return openDialog(message, { okText: 'Confirmar', cancelText: 'Cancelar', ...opts }); }
+function showConfirm(message, opts = {}) { return openDialog(message, { okText: t('modal.confirm'), cancelText: t('modal.cancel'), ...opts }); }
 const KEY = 'gymlog-sessions-v1';
 let sessions = JSON.parse(localStorage.getItem(KEY) || '[]');
 let activeSession = null;
 const save = () => localStorage.setItem(KEY, JSON.stringify(sessions));
-const dateFmt = d => new Intl.DateTimeFormat('es-CO', {day:'numeric', month:'short', year:'numeric'}).format(new Date(d));
+const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d));
 const todayKey = () => new Date().toISOString().slice(0,10);
 
 function makeSession() { return { id: crypto.randomUUID(), date: todayKey(), name: '', exercises: [] }; }
@@ -49,13 +49,13 @@ function routineSummaries() {
 }
 function daysAgoLabel(dateKey) {
   const days=Math.round((new Date(todayKey()+'T12:00')-new Date(dateKey+'T12:00'))/86400000);
-  if(days<=0) return 'hoy';
-  if(days===1) return 'ayer';
-  if(days<7) return `hace ${days} días`;
-  if(days<14) return 'hace 1 semana';
-  if(days<31) return `hace ${Math.floor(days/7)} semanas`;
+  if(days<=0) return t('routine.today');
+  if(days===1) return t('routine.yesterday');
+  if(days<7) return t('routine.daysAgo',{n:days});
+  if(days<14) return t('routine.weekAgo');
+  if(days<31) return t('routine.weeksAgo',{n:Math.floor(days/7)});
   const months=Math.floor(days/30);
-  return months===1 ? 'hace 1 mes' : `hace ${months} meses`;
+  return months===1 ? t('routine.monthAgo') : t('routine.monthsAgo',{n:months});
 }
 function renderRoutinePanel(filter='') {
   const term=filter.trim().toLowerCase();
@@ -63,11 +63,11 @@ function renderRoutinePanel(filter='') {
   const panel=$('#routinePanel');
   if(!items.length){
     panel.innerHTML=`<p class="routine-empty">${sessions.some(s=>(s.name||'').trim())
-      ? 'Ninguna rutina coincide. Sigue escribiendo para crear una nueva.'
-      : 'Todavía no tienes rutinas guardadas. Escribe un nombre y aparecerá aquí la próxima vez.'}</p>`;
+      ? t('routine.empty.some')
+      : t('routine.empty.none')}</p>`;
     return;
   }
-  panel.innerHTML=items.map(r=>`<button type="button" class="routine-option" role="option" data-name="${escapeHtml(r.name)}"><span class="routine-option-name">${escapeHtml(r.name)}</span><span class="routine-option-meta">${daysAgoLabel(r.date)} · ${r.moves} movimientos · ${r.times}${r.times===1?' vez':' veces'}</span></button>`).join('');
+  panel.innerHTML=items.map(r=>`<button type="button" class="routine-option" role="option" data-name="${escapeHtml(r.name)}"><span class="routine-option-name">${escapeHtml(r.name)}</span><span class="routine-option-meta">${daysAgoLabel(r.date)} · ${r.moves} ${t('routine.moves')} · ${r.times} ${r.times===1?t('routine.time'):t('routine.times')}</span></button>`).join('');
   $$('.routine-option',panel).forEach(b=>b.onclick=()=>pickRoutine(b.dataset.name));
 }
 function openRoutinePanel() {
@@ -96,10 +96,12 @@ function getLastExercise(name) {
   const key = name.trim().toLowerCase(); if (!key) return null;
   return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>e.name.trim().toLowerCase()===key);
 }
-function updateLast(card) { const e = getLastExercise($('.exercise-name', card).value); $('.last-time', card).textContent = e ? `Tu última referencia · ${dateFmt(e.date)} · ${e.sets.map(s=>`${s.weight} kg × ${s.reps}`).join(' / ')}` : 'Aún no tienes una referencia para este ejercicio'; }
+function updateLast(card) { const e = getLastExercise($('.exercise-name', card).value); $('.last-time', card).textContent = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>`${s.weight} kg × ${s.reps}`).join(' / ')}) : t('exercise.noLast'); }
 function addSet(card, values = {}) {
   const node = $('#setTemplate').content.firstElementChild.cloneNode(true); $('.set-weight',node).value = values.weight ?? ''; $('.set-reps',node).value = values.reps ?? '';
-  if (values.targetWeight != null) $('.set-weight',node).placeholder = `${values.targetWeight} kg`; if (values.targetReps != null) $('.set-reps',node).placeholder = `${values.targetReps} reps`;
+  $('.set-weight',node).placeholder = values.targetWeight != null ? `${values.targetWeight} kg` : t('set.weightPlaceholder');
+  $('.set-reps',node).placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
+  $('.remove-set',node).title = t('set.removeTitle');
   $('.set-rows',card).append(node); refreshSetNumbers(card);
   $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); };
 }
@@ -107,6 +109,10 @@ function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textC
 function addExercise(data = {}) {
   $('#sessionEmpty').hidden = true;
   const card = $('#exerciseTemplate').content.firstElementChild.cloneNode(true); $('.exercise-name',card).value = data.name || '';
+  $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
+  $('.remove-exercise',card).title = t('exercise.removeTitle');
+  $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.load'),t('set.label.reps'),''][i] ?? ''; });
+  $('.add-set',card).textContent = t('set.add');
   (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
   $('.exercise-name',card).oninput = () => updateLast(card); $('.exercise-name',card).onblur = () => updateLast(card);
   $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; };
@@ -116,7 +122,7 @@ function renderActiveSession() {
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   if (!activeSession) activeSession = makeSession();
   const saved = sessions.some(s=>s.id===activeSession.id);
-  $('#sessionTitle').textContent = saved ? `Editando · ${dateFmt(activeSession.date)}` : 'Entrenamiento actual';
+  $('#sessionTitle').textContent = saved ? t('session.editing',{date:dateFmt(activeSession.date)}) : t('session.current');
   $('#sessionName').value = activeSession.name || '';
   $('#sessionDate').value = activeSession.date || todayKey();
   $('#deleteSession').hidden = !saved;
@@ -128,19 +134,19 @@ function collectSession() {
   return {...activeSession, name:$('#sessionName').value.trim(), exercises};
 }
 async function finishSession() {
-  const entry=collectSession(); if(!entry.exercises.length){ await showAlert('Añade al menos un ejercicio y una serie antes de guardar.'); return; }
+  const entry=collectSession(); if(!entry.exercises.length){ await showAlert(t('session.needExercise')); return; }
   entry.updatedAt=new Date().toISOString(); // sella la edición para resolver conflictos al fusionar con Drive
   const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
-  await showAlert(prs.length?`🏆 ¡NUEVO RÉCORD PERSONAL!\n\n${prs.join('\n')}\n\nEntrenamiento guardado.`:'Entrenamiento guardado. Tu siguiente marca empieza aquí.');
+  await showAlert(prs.length?t('session.pr',{list:prs.join('\n')}):t('session.saved'));
 }
 function updateDashboard() {
   const cutoff=new Date();cutoff.setDate(cutoff.getDate()-6); const recent=sessions.filter(s=>new Date(s.date+'T12:00')>=cutoff); const sets=recent.flatMap(s=>s.exercises.flatMap(e=>e.sets));
-  $('#weekSessions').textContent=recent.length; $('#weekSets').textContent=sets.length; $('#weekVolume').textContent=Math.round(sets.reduce((t,s)=>t+s.weight*s.reps,0)).toLocaleString('es-CO'); renderHistory(); populateProgress(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
+  $('#weekSessions').textContent=recent.length; $('#weekSets').textContent=sets.length; $('#weekVolume').textContent=Math.round(sets.reduce((t,s)=>t+s.weight*s.reps,0)).toLocaleString(dateLocale()); renderHistory(); populateProgress(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
 }
 function renderHistory() {
   const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value); let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)); if(period){const d=new Date();d.setDate(d.getDate()-period);data=data.filter(s=>new Date(s.date+'T12:00')>=d)}
   data=data.filter(s=>(s.name||'').toLowerCase().includes(term)||s.exercises.some(e=>e.name.toLowerCase().includes(term)));
-  $('#historyList').innerHTML=data.length?data.map(s=>`<article class="history-session"><header><div><h3>${escapeHtml(s.name||'Sesión sin nombre')}</h3><time>${dateFmt(s.date)} · ${s.exercises.length} movimientos</time></div><button class="secondary-button edit-session" data-id="${s.id}">Editar</button></header><div class="history-moves">${s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${x.weight}×${x.reps}`).join(' · ')}</small></div>`).join('')}</div></article>`).join(''):'<p class="no-data">Aún no hay registros que coincidan.</p>';
+  $('#historyList').innerHTML=data.length?data.map(s=>`<article class="history-session"><header><div><h3>${escapeHtml(s.name||t('history.unnamed'))}</h3><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></header><div class="history-moves">${s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${x.weight}×${x.reps}`).join(' · ')}</small></div>`).join('')}</div></article>`).join(''):`<p class="no-data">${t('history.noData')}</p>`;
   $$('.edit-session').forEach(b=>b.onclick=()=>editSession(b.dataset.id));
 }
 function editSession(id) {
@@ -148,19 +154,19 @@ function editSession(id) {
   $$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.view==='session')); $$('.view').forEach(v=>v.classList.toggle('active',v.id==='sessionView'));
   $('#sessionView').scrollIntoView({behavior:'smooth'});
 }
-function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):'<option>Sin ejercicios registrados</option>'; if(names.includes(current))sel.value=current; renderProgress(); }
-function renderProgress() { const name=$('#progressExercise').value; const records=sessions.sort((a,b)=>a.date.localeCompare(b.date)).flatMap(s=>s.exercises.filter(e=>e.name===name).map(e=>({date:s.date,sets:e.sets,max:Math.max(...e.sets.map(x=>x.weight)),volume:e.sets.reduce((t,x)=>t+x.weight*x.reps,0)}))); const root=$('#progressContent'); if(!records.length){root.innerHTML='<p class="no-data">Cuando registres este ejercicio, su avance aparecerá aquí.</p>';return} const last=records.at(-1), first=records[0], diff=last.max-first.max; const bars=records.slice(-8), max=Math.max(...bars.map(r=>r.max),1); root.innerHTML=`<div class="progress-stats"><article class="progress-stat"><span>Tu última carga</span><strong>${last.max} kg</strong></article><article class="progress-stat"><span>Tu mejor marca</span><strong>${Math.max(...records.map(r=>r.max))} kg</strong></article><article class="progress-stat"><span>Cambio total</span><strong>${diff>=0?'+':''}${diff} kg</strong></article></div><article class="chart-card"><h3>Tu carga máxima en el tiempo</h3><p>${escapeHtml(name)} · ${bars.length} entrenamientos recientes</p><div class="bar-chart">${bars.map(r=>`<div class="bar-wrap"><span class="bar-value">${r.max}</span><div class="bar" style="height:${Math.max(8,r.max/max*115)}px"></div><span class="bar-label">${new Date(r.date+'T12:00').toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span></div>`).join('')}</div></article>`; }
+function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):`<option>${t('progress.noExercises')}</option>`; if(names.includes(current))sel.value=current; renderProgress(); }
+function renderProgress() { const name=$('#progressExercise').value; const records=sessions.sort((a,b)=>a.date.localeCompare(b.date)).flatMap(s=>s.exercises.filter(e=>e.name===name).map(e=>({date:s.date,sets:e.sets,max:Math.max(...e.sets.map(x=>x.weight)),volume:e.sets.reduce((t,x)=>t+x.weight*x.reps,0)}))); const root=$('#progressContent'); if(!records.length){root.innerHTML=`<p class="no-data">${t('progress.noData')}</p>`;return} const last=records.at(-1), first=records[0], diff=last.max-first.max; const bars=records.slice(-8), max=Math.max(...bars.map(r=>r.max),1); root.innerHTML=`<div class="progress-stats"><article class="progress-stat"><span>${t('progress.lastLoad')}</span><strong>${last.max} kg</strong></article><article class="progress-stat"><span>${t('progress.bestMark')}</span><strong>${Math.max(...records.map(r=>r.max))} kg</strong></article><article class="progress-stat"><span>${t('progress.totalChange')}</span><strong>${diff>=0?'+':''}${diff} kg</strong></article></div><article class="chart-card"><h3>${t('progress.chartTitle')}</h3><p>${t('progress.chartSub',{name:escapeHtml(name),n:bars.length})}</p><div class="bar-chart">${bars.map(r=>`<div class="bar-wrap"><span class="bar-value">${r.max}</span><div class="bar" style="height:${Math.max(8,r.max/max*115)}px"></div><span class="bar-label">${new Date(r.date+'T12:00').toLocaleDateString(dateLocale(),{day:'2-digit',month:'2-digit'})}</span></div>`).join('')}</div></article>`; }
 // --- Temporizador de descanso ---
 let restInterval=null, restEnds=0, restDuration=90;
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
   restDuration=seconds; restEnds=Date.now()+seconds*1000; $('#restTimer').hidden=false; document.body.classList.add('rest-active'); clearInterval(restInterval);
-  $('#restToggle').classList.add('is-on'); $('#restToggle').title='Descanso en curso · toca para detener';
+  $('#restToggle').classList.add('is-on'); $('#restToggle').title=t('rest.running');
   const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); $('#restDisplay').textContent=fmtRest(left);
     if(left<=0){stopRest(); beep(); if(navigator.vibrate)navigator.vibrate([200,100,200]);}};
   tick(); restInterval=setInterval(tick,250);
 }
-function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;document.body.classList.remove('rest-active');$('#restToggle').classList.remove('is-on');$('#restToggle').title='Iniciar descanso manual';}
+function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;document.body.classList.remove('rest-active');$('#restToggle').classList.remove('is-on');$('#restToggle').title=t('rest.start');}
 function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 $('#restToggle').onclick=()=>{ restInterval?stopRest():startRest(); };
 $('#exerciseList').addEventListener('change',e=>{if(e.target.matches('.set-reps')&&e.target.value)startRest();});
@@ -220,8 +226,11 @@ function detectPRs(entry){
 
 function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 
-$('#today').textContent=new Intl.DateTimeFormat('es-CO',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
-$('#heroDate').textContent=new Intl.DateTimeFormat('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
+function renderTodayDates(){
+  $('#today').textContent=new Intl.DateTimeFormat(dateLocale(),{weekday:'long',day:'numeric',month:'long'}).format(new Date());
+  $('#heroDate').textContent=new Intl.DateTimeFormat(dateLocale(),{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
+}
+renderTodayDates();
 $('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
 $('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; };
 $('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); };
@@ -236,22 +245,23 @@ $('#routineToggle').onclick=()=>{ if($('#routinePanel').hidden){ openRoutinePane
 document.addEventListener('click',e=>{ if(!e.target.closest('.routine-field')) closeRoutinePanel(); });
 $('#loadRoutine').onclick=async ()=>{
   const prev=lastSessionByRoutine($('#sessionName').value);
-  if(!prev){ await showAlert('Escribe el nombre de una rutina que ya hayas guardado (ej. Pecho) para cargar sus ejercicios.'); return; }
-  if($('#exerciseList').children.length && !(await showConfirm('Esto reemplazará los movimientos actuales con los de tu última sesión de esta rutina. ¿Continuar?', {danger:true, okText:'Reemplazar'})))return;
+  if(!prev){ await showAlert(t('routine.loadNeedName')); return; }
+  if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')})))return;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
   if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
 };
 $('#clearSession').onclick=async ()=>{
   if(!$('#exerciseList').children.length)return;
-  if(!(await showConfirm('¿Vaciar los movimientos de la sesión actual? Se perderá lo que no hayas guardado.', {danger:true, okText:'Vaciar'})))return;
+  if(!(await showConfirm(t('session.clearConfirm'), {danger:true, okText:t('session.clearOk')})))return;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false;
 };
-$('#deleteSession').onclick=async ()=>{if(await showConfirm('¿Descartar este entrenamiento? Quedará una copia local por si te arrepientes.', {danger:true, okText:'Descartar'})){window.snapshot?.('borrar una sesión');sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
+$('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
-$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`loadout-respaldo-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
-$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(`¿Restaurar ${payload.sessions.length} sesiones? Esto reemplazará los datos actuales de este navegador.`,{danger:true,okText:'Restaurar'})))return;window.snapshot?.('importar un archivo');sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert('Respaldo restaurado correctamente.');}catch{await showAlert('Este archivo no parece ser un respaldo válido de LOADOUT.');}finally{event.target.value='';}};
+$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
+$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
 renderActiveSession();updateDashboard();
+window.onLangChange=()=>{ renderTodayDates(); renderActiveSession(); updateDashboard(); };
 
 if('serviceWorker' in navigator && location.protocol!=='file:')navigator.serviceWorker.register('sw.js');

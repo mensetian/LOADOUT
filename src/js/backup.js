@@ -39,12 +39,12 @@ function snapshot(reason) {
 
 function agoLabel(iso) {
   const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
-  if (mins < 1) return 'hace un momento';
-  if (mins < 60) return `hace ${mins} min`;
+  if (mins < 1) return t('backup.momentAgo');
+  if (mins < 60) return t('backup.minAgo',{n:mins});
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `hace ${hours} h`;
+  if (hours < 24) return t('backup.hourAgo',{n:hours});
   const days = Math.floor(hours / 24);
-  return days === 1 ? 'hace 1 día' : `hace ${days} días`;
+  return days === 1 ? t('backup.dayAgo') : t('backup.daysAgo2',{n:days});
 }
 
 // El botón "Deshacer" debe explicarse solo: dice qué revertiría, o se apaga.
@@ -55,30 +55,28 @@ function renderSnapshotStatus() {
   const snaps = readSnapshots();
   button.disabled = !snaps.length;
   if (!snaps.length) {
-    status.textContent = 'Deshacer: nada que revertir por ahora.';
+    status.textContent = t('undo.none');
     return;
   }
-  status.textContent = `Deshacer: ${snaps[0].reason} (${agoLabel(snaps[0].at)}).`;
+  status.textContent = t('undo.label',{reason:snaps[0].reason, ago:agoLabel(snaps[0].at)});
 }
 
 async function restoreLastSnapshot() {
   const snaps = readSnapshots();
-  if (!snaps.length) { await showAlert('Todavía no hay copias automáticas guardadas.'); return; }
+  if (!snaps.length) { await showAlert(t('undo.noneAlert')); return; }
   const last = snaps[0];
-  const when = new Date(last.at).toLocaleString('es-CO');
+  const when = new Date(last.at).toLocaleString(dateLocale());
   const ok = await showConfirm(
-    `Vas a deshacer: ${last.reason} (${agoLabel(last.at)}).\n\n` +
-    `Se volverá al estado del ${when}, con ${last.sessions.length} sesiones. ` +
-    `Lo que hayas registrado después de ese momento se perderá.`,
-    { danger: true, okText: 'Deshacer' });
+    t('undo.confirm', {reason:last.reason, ago:agoLabel(last.at), when, n:last.sessions.length}),
+    { danger: true, okText: t('undo.ok') });
   if (!ok) return;
-  snapshot('restaurar una copia');
+  snapshot(t('undo.restoreReason'));
   sessions = last.sessions;
   save();
   activeSession = makeSession();
   renderActiveSession();
   updateDashboard();
-  await showAlert('Listo, volviste al estado anterior.');
+  await showAlert(t('undo.done'));
 }
 
 // --- 3. Estado del último respaldo ------------------------------------------
@@ -93,13 +91,13 @@ function renderBackupStatus() {
   const raw = localStorage.getItem(LAST_BACKUP_KEY);
   if (!sessions.length) { el.textContent = ''; el.className = 'backup-status'; return; }
   if (!raw) {
-    el.textContent = '⚠ Nunca has hecho un respaldo. Si pierdes este navegador, pierdes el registro.';
+    el.textContent = t('backup.neverWarn');
     el.className = 'backup-status is-warn';
     return;
   }
   const days = Math.floor((Date.now() - new Date(raw)) / 86400000);
-  const label = days === 0 ? 'hoy' : days === 1 ? 'hace 1 día' : `hace ${days} días`;
-  el.textContent = `Último respaldo: ${label}.`;
+  const label = days === 0 ? t('backup.lastToday') : days === 1 ? t('backup.last1Day') : t('backup.lastDays',{n:days});
+  el.textContent = t('backup.lastLabel',{label});
   el.className = days >= 7 ? 'backup-status is-warn' : 'backup-status';
 }
 

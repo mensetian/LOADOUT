@@ -25,21 +25,23 @@ const DRIVE_LINKED_KEY = 'loadout-drive-linked';
 
 // Etiqueta corta para el chip del header según el estado.
 const CHIP = {
-  '':        { label: 'Drive',        title: 'Google Drive · toca para conectar' },
-  'is-ok':   { label: 'Drive ✓',      title: 'Sincronizado con Google Drive' },
-  'is-warn': { label: 'Drive !',      title: 'Google Drive necesita tu atención' },
-  'busy':    { label: 'Drive…',       title: 'Sincronizando con Google Drive' },
+  '':        { label: 'drive.chip.default',  title: 'drive.chip.defaultTitle' },
+  'is-ok':   { label: 'drive.chip.ok',        title: 'drive.chip.okTitle' },
+  'is-warn': { label: 'drive.chip.warn',      title: 'drive.chip.warnTitle' },
+  'busy':    { label: 'drive.chip.busy',      title: 'drive.chip.busyTitle' },
 };
+let lastChipKind = '';
 
 function updateConnChip(kind) {
+  lastChipKind = kind;
   const chip = document.querySelector('#connChip');
   const label = document.querySelector('#connLabel');
   if (!chip || !label) return;
   const info = CHIP[kind] ?? CHIP[''];
   chip.hidden = false;
   chip.className = `conn-chip ${kind}`;
-  chip.title = info.title;
-  label.textContent = info.label;
+  chip.title = t(info.title);
+  label.textContent = t(info.label);
 }
 
 function setDriveStatus(text, kind = '') {
@@ -52,7 +54,7 @@ function setDriveStatus(text, kind = '') {
 function initDrive() {
   if (!driveEnabled()) return; // sin Client ID la tarjeta permanece oculta
   document.querySelector('#driveCard').hidden = false;
-  setDriveStatus('Cargando Google…');
+  setDriveStatus(t('drive.loadingGoogle'));
 
   const script = document.createElement('script');
   script.src = 'https://accounts.google.com/gsi/client';
@@ -65,35 +67,35 @@ function initDrive() {
       callback: response => {
         if (response.error) {
           // Falló la reconexión silenciosa: no es un error visible, solo pide tocar.
-          if (driveSilent) { driveSilent = false; setDriveStatus('Sin conectar. Toca para sincronizar.'); return; }
-          return setDriveStatus('No se pudo autorizar.', 'is-warn');
+          if (driveSilent) { driveSilent = false; setDriveStatus(t('drive.reconnectFail')); return; }
+          return setDriveStatus(t('drive.authFail'), 'is-warn');
         }
         driveToken = response.access_token;
         localStorage.setItem(DRIVE_LINKED_KEY, '1');
         driveSilent = false;
         const action = drivePendingAction;
         drivePendingAction = null;
-        if (action) action(); else setDriveStatus('Conectado a Drive.', 'is-ok');
+        if (action) action(); else setDriveStatus(t('drive.connected'), 'is-ok');
       },
     });
     // Si ya autorizaste antes en este dispositivo, intenta reconectar sin popup.
     if (localStorage.getItem(DRIVE_LINKED_KEY)) {
       driveSilent = true;
       drivePendingAction = () => driveSync({ silent: true, retry: silentSync });
-      setDriveStatus('Reconectando…', 'busy');
+      setDriveStatus(t('drive.reconnecting'), 'busy');
       driveTokenClient.requestAccessToken({ prompt: '' });
     } else {
-      setDriveStatus('Sin conectar. Toca para sincronizar.');
+      setDriveStatus(t('drive.notConnected'));
     }
   };
-  script.onerror = () => setDriveStatus('Sin conexión: Drive no disponible ahora.', 'is-warn');
+  script.onerror = () => setDriveStatus(t('drive.offline'), 'is-warn');
   document.head.append(script);
 }
 const silentSync = () => driveSync({ silent: true, retry: silentSync }).catch(() => {});
 
 // Ejecuta `action` asegurando que haya un token válido.
 function withDriveToken(action) {
-  if (!driveTokenClient) return setDriveStatus('Google aún no ha cargado.', 'is-warn');
+  if (!driveTokenClient) return setDriveStatus(t('drive.notLoaded'), 'is-warn');
   if (driveToken) return action();
   drivePendingAction = action;
   driveTokenClient.requestAccessToken();
@@ -116,7 +118,7 @@ function driveExpired(response, retry) {
 async function driveSave({ silent = false } = {}) {
   const body = JSON.stringify({ app: 'LOADOUT', version: 1, exportedAt: new Date().toISOString(), sessions }, null, 2);
   const fileId = localStorage.getItem(DRIVE_FILE_KEY);
-  setDriveStatus('Guardando…');
+  setDriveStatus(t('drive.saving'));
 
   try {
     let response;
@@ -146,12 +148,12 @@ async function driveSave({ silent = false } = {}) {
     }
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    setDriveStatus(`Guardado en Drive · ${new Date().toLocaleTimeString('es-CO')}`, 'is-ok');
+    setDriveStatus(t('drive.saved',{time:new Date().toLocaleTimeString(dateLocale())}), 'is-ok');
     markBackupDone();
-    if (!silent) await showAlert('Respaldo guardado en tu Google Drive.');
+    if (!silent) await showAlert(t('drive.saveDoneAlert'));
   } catch (error) {
-    setDriveStatus(`No se pudo guardar (${error.message}).`, 'is-warn');
-    if (!silent) await showAlert('No se pudo guardar en Drive. Revisa tu conexión e inténtalo de nuevo.');
+    setDriveStatus(t('drive.saveError',{error:error.message}), 'is-warn');
+    if (!silent) await showAlert(t('drive.saveErrorAlert'));
   }
 }
 
@@ -211,7 +213,7 @@ function adoptSessions(merged, reason) {
 // Núcleo de la sincronización: trae lo de Drive, lo une con lo local y sube la
 // unión. Así ningún guardado pisa datos del otro dispositivo.
 async function driveSync({ silent, retry }) {
-  setDriveStatus('Sincronizando…', 'busy');
+  setDriveStatus(t('drive.syncing'), 'busy');
   const fileId = await findDriveFileId(retry);
   if (fileId === undefined) return; // reintentando tras re-autorizar
 
@@ -220,52 +222,51 @@ async function driveSync({ silent, retry }) {
     const payload = await readDriveBackup(fileId, retry);
     if (payload === undefined) return;
     if (!payload) {
-      if (!silent) setDriveStatus('El respaldo de Drive no es legible.', 'is-warn');
+      if (!silent) setDriveStatus(t('drive.unreadable'), 'is-warn');
       return;
     }
     const merged = mergeSessions(sessions, payload.sessions);
     if (!sameSessions(merged, sessions)) {
-      adoptSessions(merged, 'sincronizar con Drive');
+      adoptSessions(merged, t('drive.syncReason'));
       combined = true;
     }
   }
 
   await driveSave({ silent: true }); // sube la unión ya reconciliada
-  setDriveStatus(`Sincronizado · ${sessions.length} sesiones.`, 'is-ok');
+  setDriveStatus(t('drive.synced',{n:sessions.length}), 'is-ok');
   if (!silent) {
     await showAlert(combined
-      ? `Listo. Se combinaron los dos lados: ahora tienes ${sessions.length} sesiones en este dispositivo y en Drive.`
-      : 'Todo sincronizado. No había cambios nuevos.');
+      ? t('drive.syncCombined',{n:sessions.length})
+      : t('drive.syncNoChanges'));
   }
 }
 
-const manualSync = () => driveSync({ silent: false, retry: manualSync }).catch(e => setDriveStatus(`No se pudo sincronizar (${e.message}).`, 'is-warn'));
+const manualSync = () => driveSync({ silent: false, retry: manualSync }).catch(e => setDriveStatus(t('drive.syncError',{error:e.message}), 'is-warn'));
 
 // --- Restaurar (forzar: reemplazar lo local con lo de Drive) ----------------
 // Escotilla de emergencia. A diferencia de sincronizar, aquí SÍ se descarta lo
 // local; útil si este dispositivo tiene datos erróneos que no quieres propagar.
 async function driveRestore() {
-  setDriveStatus('Buscando respaldo…');
+  setDriveStatus(t('drive.searching'));
   try {
     const fileId = await findDriveFileId(driveRestore);
     if (fileId === undefined) return;
-    if (!fileId) { setDriveStatus('No encontré un respaldo en tu Drive.', 'is-warn'); return; }
+    if (!fileId) { setDriveStatus(t('drive.notFound'), 'is-warn'); return; }
 
     const payload = await readDriveBackup(fileId, driveRestore);
     if (payload === undefined) return;
-    if (!payload) { setDriveStatus('El archivo de Drive no es un respaldo válido.', 'is-warn'); return; }
+    if (!payload) { setDriveStatus(t('drive.invalidBackup'), 'is-warn'); return; }
 
     const ok = await showConfirm(
-      `Forzar restauración: se DESCARTAN las ${sessions.length} sesiones de este dispositivo y se dejan las ${payload.sessions.length} de Drive.\n\n` +
-      `Si solo quieres unir ambos lados sin perder nada, usa "Sincronizar".`,
-      { danger: true, okText: 'Reemplazar' });
-    if (!ok) { setDriveStatus('Restauración cancelada.'); return; }
+      t('drive.forceConfirm', {local:sessions.length, remote:payload.sessions.length}),
+      { danger: true, okText: t('drive.forceOk') });
+    if (!ok) { setDriveStatus(t('drive.forceCancelled')); return; }
 
-    adoptSessions([...payload.sessions], 'restaurar desde Drive');
-    setDriveStatus(`Restaurado desde Drive · ${sessions.length} sesiones.`, 'is-ok');
-    await showAlert('Datos restaurados desde tu Google Drive.');
+    adoptSessions([...payload.sessions], t('drive.restoreReason'));
+    setDriveStatus(t('drive.restored',{n:sessions.length}), 'is-ok');
+    await showAlert(t('drive.restoredAlert'));
   } catch (error) {
-    setDriveStatus(`No se pudo restaurar (${error.message}).`, 'is-warn');
+    setDriveStatus(t('drive.restoreError',{error:error.message}), 'is-warn');
   }
 }
 
@@ -285,3 +286,5 @@ document.querySelector('#connChip').onclick = () => {
   withDriveToken(manualSync);
 };
 initDrive();
+const prevOnLangChange = window.onLangChange;
+window.onLangChange = () => { prevOnLangChange?.(); updateConnChip(lastChipKind); renderBackupStatus?.(); };

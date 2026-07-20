@@ -117,6 +117,9 @@ body.modal-open{overflow:hidden}
 @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
 @media(max-width:520px){.conn-chip .conn-label{display:none}.conn-chip{padding:0 10px}}
 
+/* === Selector de idioma === */
+.lang-btn{font:800 11px var(--mono);letter-spacing:.04em}
+
 /* === Campo de fecha de la sesión === */
 .routine-date{display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:3px;background:var(--panel);color:var(--muted);font:10px var(--mono);letter-spacing:.06em}
 .routine-date input{border:0;background:transparent;color:var(--ink);font:12px var(--mono);outline:none}
