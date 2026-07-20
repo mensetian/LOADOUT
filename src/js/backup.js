@@ -36,19 +36,19 @@ function snapshot(reason) {
   } catch { /* sin espacio: no bloqueamos la acción del usuario */ }
 }
 
-function restoreLastSnapshot() {
+async function restoreLastSnapshot() {
   const snaps = readSnapshots();
-  if (!snaps.length) return alert('Todavía no hay copias automáticas guardadas.');
+  if (!snaps.length) { await showAlert('Todavía no hay copias automáticas guardadas.'); return; }
   const last = snaps[0];
   const when = new Date(last.at).toLocaleString('es-CO');
-  if (!confirm(`Copia del ${when}\nMotivo: ${last.reason}\nContiene ${last.sessions.length} sesiones.\n\n¿Restaurarla? Se reemplazarán los datos actuales.`)) return;
+  if (!(await showConfirm(`Copia del ${when}\nMotivo: ${last.reason}\nContiene ${last.sessions.length} sesiones.\n\n¿Restaurarla? Se reemplazarán los datos actuales.`, {danger:true, okText:'Restaurar'}))) return;
   snapshot('antes de restaurar una copia');
   sessions = last.sessions;
   save();
   activeSession = makeSession();
   renderActiveSession();
   updateDashboard();
-  alert('Copia restaurada.');
+  await showAlert('Copia restaurada.');
 }
 
 // --- 3. Estado del último respaldo ------------------------------------------

@@ -9,4 +9,4 @@
 // web son públicos por diseño.
 // ---------------------------------------------------------------------------
 
-const GOOGLE_CLIENT_ID = '';
+const GOOGLE_CLIENT_ID = '990150930418-n8tider3m12ui6f1v605brab4glifoei.apps.googleusercontent.com';

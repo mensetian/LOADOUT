@@ -1,5 +1,29 @@
 const $ = (s, p = document) => p.querySelector(s);
 const $$ = (s, p = document) => [...p.querySelectorAll(s)];
+
+// --- Diálogos con estilo (reemplazan alert/confirm nativos) ---
+function openDialog(message, {okText='Aceptar', cancelText=null, danger=false} = {}) {
+  return new Promise(resolve => {
+    const overlay=$('#modalOverlay'), okBtn=$('#modalOk'), cancelBtn=$('#modalCancel');
+    $('#modalMessage').textContent = message;
+    okBtn.textContent = okText; okBtn.classList.toggle('is-danger', danger);
+    cancelBtn.hidden = !cancelText; if (cancelText) cancelBtn.textContent = cancelText;
+    overlay.hidden = false; document.body.classList.add('modal-open');
+    const cleanup = result => {
+      overlay.hidden = true; document.body.classList.remove('modal-open');
+      okBtn.onclick = null; cancelBtn.onclick = null; overlay.onclick = null;
+      document.removeEventListener('keydown', onKey); resolve(result);
+    };
+    const onKey = e => { if (e.key === 'Escape') cleanup(false); };
+    okBtn.onclick = () => cleanup(true);
+    cancelBtn.onclick = () => cleanup(false);
+    overlay.onclick = e => { if (e.target === overlay) cleanup(false); };
+    document.addEventListener('keydown', onKey);
+    (cancelText && danger ? cancelBtn : okBtn).focus();
+  });
+}
+function showAlert(message) { return openDialog(message); }
+function showConfirm(message, opts = {}) { return openDialog(message, { okText: 'Confirmar', cancelText: 'Cancelar', ...opts }); }
 const KEY = 'gymlog-sessions-v1';
 let sessions = JSON.parse(localStorage.getItem(KEY) || '[]');
 let activeSession = null;
@@ -46,10 +70,10 @@ function collectSession() {
   const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:Number($('.set-weight',r).value)||0,reps:Number($('.set-reps',r).value)||0})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
   return {...activeSession, name:$('#sessionName').value.trim(), exercises};
 }
-function finishSession() {
-  const entry=collectSession(); if(!entry.exercises.length) return alert('Añade al menos un ejercicio y una serie antes de guardar.');
+async function finishSession() {
+  const entry=collectSession(); if(!entry.exercises.length){ await showAlert('Añade al menos un ejercicio y una serie antes de guardar.'); return; }
   const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
-  alert(prs.length?`🏆 ¡NUEVO RÉCORD PERSONAL!\n\n${prs.join('\n')}\n\nEntrenamiento guardado.`:'Entrenamiento guardado. Tu siguiente marca empieza aquí.');
+  await showAlert(prs.length?`🏆 ¡NUEVO RÉCORD PERSONAL!\n\n${prs.join('\n')}\n\nEntrenamiento guardado.`:'Entrenamiento guardado. Tu siguiente marca empieza aquí.');
 }
 function updateDashboard() {
   const cutoff=new Date();cutoff.setDate(cutoff.getDate()-6); const recent=sessions.filter(s=>new Date(s.date+'T12:00')>=cutoff); const sets=recent.flatMap(s=>s.exercises.flatMap(e=>e.sets));
@@ -70,20 +94,18 @@ function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exer
 function renderProgress() { const name=$('#progressExercise').value; const records=sessions.sort((a,b)=>a.date.localeCompare(b.date)).flatMap(s=>s.exercises.filter(e=>e.name===name).map(e=>({date:s.date,sets:e.sets,max:Math.max(...e.sets.map(x=>x.weight)),volume:e.sets.reduce((t,x)=>t+x.weight*x.reps,0)}))); const root=$('#progressContent'); if(!records.length){root.innerHTML='<p class="no-data">Cuando registres este ejercicio, su avance aparecerá aquí.</p>';return} const last=records.at(-1), first=records[0], diff=last.max-first.max; const bars=records.slice(-8), max=Math.max(...bars.map(r=>r.max),1); root.innerHTML=`<div class="progress-stats"><article class="progress-stat"><span>Tu última carga</span><strong>${last.max} kg</strong></article><article class="progress-stat"><span>Tu mejor marca</span><strong>${Math.max(...records.map(r=>r.max))} kg</strong></article><article class="progress-stat"><span>Cambio total</span><strong>${diff>=0?'+':''}${diff} kg</strong></article></div><article class="chart-card"><h3>Tu carga máxima en el tiempo</h3><p>${escapeHtml(name)} · ${bars.length} entrenamientos recientes</p><div class="bar-chart">${bars.map(r=>`<div class="bar-wrap"><span class="bar-value">${r.max}</span><div class="bar" style="height:${Math.max(8,r.max/max*115)}px"></div><span class="bar-label">${new Date(r.date+'T12:00').toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span></div>`).join('')}</div></article>`; }
 // --- Temporizador de descanso ---
 let restInterval=null, restEnds=0, restDuration=90;
-let restAuto = localStorage.getItem('loadout-rest-auto')!=='0'; // activado por defecto
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
   restDuration=seconds; restEnds=Date.now()+seconds*1000; $('#restTimer').hidden=false; document.body.classList.add('rest-active'); clearInterval(restInterval);
+  $('#restToggle').classList.add('is-on'); $('#restToggle').title='Descanso en curso · toca para detener';
   const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); $('#restDisplay').textContent=fmtRest(left);
     if(left<=0){stopRest(); beep(); if(navigator.vibrate)navigator.vibrate([200,100,200]);}};
   tick(); restInterval=setInterval(tick,250);
 }
-function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;document.body.classList.remove('rest-active');}
+function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;document.body.classList.remove('rest-active');$('#restToggle').classList.remove('is-on');$('#restToggle').title='Iniciar descanso manual';}
 function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
-function updateRestToggle(){ $('#restToggle').classList.toggle('is-on',restAuto); $('#restToggle').title=restAuto?'Descanso automático: ACTIVADO':'Descanso automático: desactivado'; }
-$('#restToggle').onclick=()=>{ restAuto=!restAuto; localStorage.setItem('loadout-rest-auto',restAuto?'1':'0'); updateRestToggle(); if(!restAuto)stopRest(); };
-updateRestToggle();
-$('#exerciseList').addEventListener('change',e=>{if(restAuto && e.target.matches('.set-reps')&&e.target.value)startRest();});
+$('#restToggle').onclick=()=>{ restInterval?stopRest():startRest(); };
+$('#exerciseList').addEventListener('change',e=>{if(e.target.matches('.set-reps')&&e.target.value)startRest();});
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
 $('#restStop').onclick=stopRest;
 
@@ -142,21 +164,26 @@ function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':
 
 $('#today').textContent=new Intl.DateTimeFormat('es-CO',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
 $('#heroDate').textContent=new Intl.DateTimeFormat('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
-$('#startSession').onclick=()=>{activeSession=makeSession();renderActiveSession();addExercise();document.querySelector('.tabs').scrollIntoView({behavior:'smooth'});$('.exercise-name')?.focus();}; $('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
+$('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
 $('#sessionName').oninput=()=>{if(activeSession)activeSession.name=$('#sessionName').value;};
-$('#loadRoutine').onclick=()=>{
+$('#loadRoutine').onclick=async ()=>{
   const prev=lastSessionByRoutine($('#sessionName').value);
-  if(!prev)return alert('Escribe el nombre de una rutina que ya hayas guardado (ej. Pecho) para cargar sus ejercicios.');
-  if($('#exerciseList').children.length && !confirm('Esto reemplazará los movimientos actuales con los de tu última sesión de esta rutina. ¿Continuar?'))return;
+  if(!prev){ await showAlert('Escribe el nombre de una rutina que ya hayas guardado (ej. Pecho) para cargar sus ejercicios.'); return; }
+  if($('#exerciseList').children.length && !(await showConfirm('Esto reemplazará los movimientos actuales con los de tu última sesión de esta rutina. ¿Continuar?', {danger:true, okText:'Reemplazar'})))return;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
   if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
 };
-$('#deleteSession').onclick=()=>{if(confirm('¿Descartar este entrenamiento? Quedará una copia local por si te arrepientes.')){window.snapshot?.('antes de borrar una sesión');sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
+$('#clearSession').onclick=async ()=>{
+  if(!$('#exerciseList').children.length)return;
+  if(!(await showConfirm('¿Vaciar los movimientos de la sesión actual? Se perderá lo que no hayas guardado.', {danger:true, okText:'Vaciar'})))return;
+  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false;
+};
+$('#deleteSession').onclick=async ()=>{if(await showConfirm('¿Descartar este entrenamiento? Quedará una copia local por si te arrepientes.', {danger:true, okText:'Descartar'})){window.snapshot?.('antes de borrar una sesión');sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
 $('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`loadout-respaldo-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
-$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!confirm(`¿Restaurar ${payload.sessions.length} sesiones? Esto reemplazará los datos actuales de este navegador.`))return;window.snapshot?.('antes de importar un archivo');sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();alert('Respaldo restaurado correctamente.');}catch{alert('Este archivo no parece ser un respaldo válido de LOADOUT.');}finally{event.target.value='';}};
+$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(`¿Restaurar ${payload.sessions.length} sesiones? Esto reemplazará los datos actuales de este navegador.`,{danger:true,okText:'Restaurar'})))return;window.snapshot?.('antes de importar un archivo');sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert('Respaldo restaurado correctamente.');}catch{await showAlert('Este archivo no parece ser un respaldo válido de LOADOUT.');}finally{event.target.value='';}};
 renderActiveSession();updateDashboard();
 
 if('serviceWorker' in navigator && location.protocol!=='file:')navigator.serviceWorker.register('sw.js');

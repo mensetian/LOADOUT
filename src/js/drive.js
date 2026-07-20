@@ -110,10 +110,10 @@ async function driveSave({ silent = false } = {}) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     setDriveStatus(`Guardado en Drive · ${new Date().toLocaleTimeString('es-CO')}`, 'is-ok');
     markBackupDone();
-    if (!silent) alert('Respaldo guardado en tu Google Drive.');
+    if (!silent) await showAlert('Respaldo guardado en tu Google Drive.');
   } catch (error) {
     setDriveStatus(`No se pudo guardar (${error.message}).`, 'is-warn');
-    if (!silent) alert('No se pudo guardar en Drive. Revisa tu conexión e inténtalo de nuevo.');
+    if (!silent) await showAlert('No se pudo guardar en Drive. Revisa tu conexión e inténtalo de nuevo.');
   }
 }
 
@@ -142,7 +142,7 @@ async function driveRestore() {
 
     const payload = await response.json();
     if (!Array.isArray(payload.sessions)) { setDriveStatus('El archivo de Drive no es un respaldo válido.', 'is-warn'); return; }
-    if (!confirm(`¿Restaurar ${payload.sessions.length} sesiones desde Drive?\nSe reemplazarán los datos de este navegador.`)) {
+    if (!(await showConfirm(`¿Restaurar ${payload.sessions.length} sesiones desde Drive?\nSe reemplazarán los datos de este navegador.`, {danger:true, okText:'Restaurar'}))) {
       setDriveStatus('Restauración cancelada.');
       return;
     }
@@ -154,7 +154,7 @@ async function driveRestore() {
     renderActiveSession();
     updateDashboard();
     setDriveStatus('Restaurado desde Drive.', 'is-ok');
-    alert('Datos restaurados desde tu Google Drive.');
+    await showAlert('Datos restaurados desde tu Google Drive.');
   } catch (error) {
     setDriveStatus(`No se pudo restaurar (${error.message}).`, 'is-warn');
   }
