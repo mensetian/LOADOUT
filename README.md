@@ -72,7 +72,7 @@ LOADOUT/
 
 ## Despliegue (GitHub Pages)
 
-La app está publicada en **https://mensetian.github.io/GymLog/** desde el repo `mensetian/GymLog` (branch `master`, carpeta raíz).
+La app está publicada en **https://mensetian.github.io/LOADOUT/** desde el repo `mensetian/LOADOUT` (branch `master`, carpeta raíz).
 
 ### Publicar cambios
 
@@ -84,19 +84,11 @@ git push origin master
 
 En ~1 minuto GitHub Pages actualiza el sitio automáticamente. En el celular, cierra y reabre la app para recibir la actualización (el service worker usa red-primero, así que baja la versión nueva cuando hay conexión).
 
-### Renombrar el proyecto a LOADOUT — pendiente: el repo
+### Nombre unificado
 
-- ✅ **Carpeta local:** ya es `c:\pipe_pc\www\LOADOUT`.
-- ✅ **Código y documentación:** ya usan LOADOUT.
-- ⬜ **Repo en GitHub:** sigue siendo `GymLog`. Para unificarlo:
-
-1. En GitHub: **Settings → Repository name** → cambiar `GymLog` por `LOADOUT` → *Rename*.
-   GitHub redirige la URL vieja automáticamente. La nueva URL de Pages pasa a ser
-   `https://mensetian.github.io/LOADOUT/` (y habrá que reinstalar la PWA desde la nueva dirección).
-2. Actualizar el remote local:
-   ```bash
-   git remote set-url origin https://github.com/mensetian/LOADOUT.git
-   ```
+Carpeta local, repo de GitHub, código y documentación usan **LOADOUT**. La URL vieja
+(`.../GymLog/`) queda redirigida por GitHub, pero la dirección buena es la de arriba:
+si tenías la PWA instalada desde la URL vieja, reinstálala desde la nueva.
 
 ### Configuración inicial (ya hecha, referencia)
 
@@ -105,7 +97,7 @@ En ~1 minuto GitHub Pages actualiza el sitio automáticamente. En el celular, ci
 
 ## Instalación como app (PWA)
 
-1. Abrir https://mensetian.github.io/GymLog/ en Chrome (Android) o Safari (iPhone).
+1. Abrir https://mensetian.github.io/LOADOUT/ en Chrome (Android) o Safari (iPhone).
 2. **Android:** menú ⋮ → *Instalar aplicación* (o el aviso "Añadir a pantalla de inicio").
    **iPhone:** botón compartir □↑ → *Añadir a pantalla de inicio*.
 3. Se abre como app independiente y funciona **offline** (los archivos quedan cacheados por `sw.js`).
