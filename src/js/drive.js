@@ -12,6 +12,12 @@
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_FILE_KEY = 'loadout-drive-file-id';
 const DRIVE_FILE_NAME = 'loadout-respaldo.json';
+// Este dispositivo solo puede subir automáticamente cuando se ha puesto al día
+// con Drive (restaurando, o guardando a mano a sabiendas). Sin esta marca, un
+// móvil recién instalado subiría su historial vacío y pisaría el del PC.
+const DRIVE_READY_KEY = 'loadout-drive-ready';
+const driveReady = () => localStorage.getItem(DRIVE_READY_KEY) === '1';
+const markDriveReady = () => localStorage.setItem(DRIVE_READY_KEY, '1');
 
 let driveToken = null;
 let driveTokenClient = null;
@@ -117,57 +123,118 @@ async function driveSave({ silent = false } = {}) {
   }
 }
 
+// --- Leer lo que hay en Drive ----------------------------------------------
+// Devuelve el id del respaldo, o null si este usuario aún no tiene ninguno.
+async function findDriveFileId(retry) {
+  const cached = localStorage.getItem(DRIVE_FILE_KEY);
+  if (cached) return cached;
+  const query = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+  const search = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,modifiedTime)&orderBy=${encodeURIComponent('modifiedTime desc')}`,
+    { headers: driveHeaders() });
+  if (driveExpired(search, retry)) return undefined; // undefined = reintentando tras re-autorizar
+  if (!search.ok) throw new Error(`HTTP ${search.status}`);
+  const found = await search.json();
+  const fileId = found.files?.[0]?.id ?? null;
+  if (fileId) localStorage.setItem(DRIVE_FILE_KEY, fileId);
+  return fileId;
+}
+
+async function readDriveBackup(fileId, retry) {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: driveHeaders() });
+  if (driveExpired(response, retry)) return undefined;
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = await response.json();
+  return Array.isArray(payload?.sessions) ? payload : null;
+}
+
+function applyDriveBackup(payload) {
+  snapshot('restaurar desde Drive');
+  sessions = payload.sessions;
+  save();
+  activeSession = makeSession();
+  renderActiveSession();
+  updateDashboard();
+  markDriveReady();
+  setDriveStatus(`Restaurado desde Drive · ${payload.sessions.length} sesiones.`, 'is-ok');
+}
+
 // --- Restaurar --------------------------------------------------------------
 async function driveRestore() {
   setDriveStatus('Buscando respaldo…');
   try {
-    let fileId = localStorage.getItem(DRIVE_FILE_KEY);
-
-    if (!fileId) {
-      const query = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
-      const search = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,modifiedTime)&orderBy=${encodeURIComponent('modifiedTime desc')}`,
-        { headers: driveHeaders() });
-      if (driveExpired(search, driveRestore)) return;
-      const found = await search.json();
-      fileId = found.files?.[0]?.id;
-      if (fileId) localStorage.setItem(DRIVE_FILE_KEY, fileId);
-    }
-
+    const fileId = await findDriveFileId(driveRestore);
+    if (fileId === undefined) return;
     if (!fileId) { setDriveStatus('No encontré un respaldo en tu Drive.', 'is-warn'); return; }
 
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: driveHeaders() });
-    if (driveExpired(response, driveRestore)) return;
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await readDriveBackup(fileId, driveRestore);
+    if (payload === undefined) return;
+    if (!payload) { setDriveStatus('El archivo de Drive no es un respaldo válido.', 'is-warn'); return; }
 
-    const payload = await response.json();
-    if (!Array.isArray(payload.sessions)) { setDriveStatus('El archivo de Drive no es un respaldo válido.', 'is-warn'); return; }
-    if (!(await showConfirm(`¿Restaurar ${payload.sessions.length} sesiones desde Drive?\nSe reemplazarán los datos de este navegador.`, {danger:true, okText:'Restaurar'}))) {
-      setDriveStatus('Restauración cancelada.');
-      return;
-    }
+    const ok = await showConfirm(
+      `En Drive hay ${payload.sessions.length} sesiones y en este dispositivo tienes ${sessions.length}.\n\n` +
+      `Se reemplazarán los datos de este dispositivo por los de Drive.`,
+      { danger: true, okText: 'Restaurar' });
+    if (!ok) { setDriveStatus('Restauración cancelada.'); return; }
 
-    snapshot('restaurar desde Drive');
-    sessions = payload.sessions;
-    save();
-    activeSession = makeSession();
-    renderActiveSession();
-    updateDashboard();
-    setDriveStatus('Restaurado desde Drive.', 'is-ok');
+    applyDriveBackup(payload);
     await showAlert('Datos restaurados desde tu Google Drive.');
   } catch (error) {
     setDriveStatus(`No se pudo restaurar (${error.message}).`, 'is-warn');
   }
 }
 
-// Llamado por app.js al terminar una sesión: sube solo si ya hay token vivo.
+// --- Al conectar: comparar antes de dar por bueno este dispositivo ----------
+// Conectar ya no es un gesto mudo. Si Drive tiene más datos que este
+// dispositivo, se ofrece traerlos en vez de dejar que se pisen luego.
+async function reviewDriveState() {
+  setDriveStatus('Comprobando Drive…');
+  try {
+    const fileId = await findDriveFileId(reviewDriveState);
+    if (fileId === undefined) return;
+    if (!fileId) {
+      markDriveReady();
+      setDriveStatus('Conectado. Aún no hay respaldo: pulsa Guardar.', 'is-ok');
+      return;
+    }
+
+    const payload = await readDriveBackup(fileId, reviewDriveState);
+    if (payload === undefined) return;
+    if (!payload) { setDriveStatus('Conectado, pero el respaldo de Drive no es legible.', 'is-warn'); return; }
+
+    const remote = payload.sessions.length;
+    if (remote > sessions.length) {
+      const ok = await showConfirm(
+        `En tu Drive hay un respaldo con ${remote} sesiones, y en este dispositivo solo tienes ${sessions.length}.\n\n` +
+        `¿Traer los datos de Drive a este dispositivo?`,
+        { okText: 'Traer datos' });
+      if (ok) { applyDriveBackup(payload); return; }
+      // Sin traerlos, este dispositivo NO puede subir solo: pisaría el respaldo.
+      setDriveStatus(`Conectado. Drive tiene ${remote} sesiones sin traer; el guardado automático queda en pausa.`, 'is-warn');
+      return;
+    }
+
+    markDriveReady();
+    setDriveStatus('Conectado y al día.', 'is-ok');
+  } catch (error) {
+    setDriveStatus(`Conectado, pero no pude comprobar Drive (${error.message}).`, 'is-warn');
+  }
+}
+
+// Llamado por app.js al terminar una sesión. Solo sube si este dispositivo ya
+// está al día con Drive; si no, callaría un respaldo mayor.
 function driveAutoSync() {
   if (!driveEnabled() || !driveToken) return;
+  if (!driveReady()) {
+    setDriveStatus('Guardado automático en pausa: trae primero los datos de Drive.', 'is-warn');
+    return;
+  }
   driveSave({ silent: true });
 }
 
 // --- Arranque ---------------------------------------------------------------
-document.querySelector('#driveConnect').onclick = () => withDriveToken(() => setDriveStatus('Conectado a Drive.', 'is-ok'));
-document.querySelector('#driveSave').onclick = () => withDriveToken(() => driveSave());
-document.querySelector('#driveRestore').onclick = () => withDriveToken(() => driveRestore());
+// Guardar a mano es un gesto deliberado: marca este dispositivo como la fuente buena.
+document.querySelector('#driveConnect').onclick = () => withDriveToken(reviewDriveState);
+document.querySelector('#driveSave').onclick = () => withDriveToken(async () => { markDriveReady(); await driveSave(); });
+document.querySelector('#driveRestore').onclick = () => withDriveToken(driveRestore);
 initDrive();
