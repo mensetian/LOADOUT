@@ -16,12 +16,36 @@ const DRIVE_FILE_NAME = 'loadout-respaldo.json';
 let driveToken = null;
 let driveTokenClient = null;
 let drivePendingAction = null;
+let driveSilent = false; // true mientras se intenta la reconexión sin popup
 
 const driveEnabled = () => typeof GOOGLE_CLIENT_ID === 'string' && GOOGLE_CLIENT_ID.trim().length > 10;
+// Recuerda si este dispositivo ya autorizó alguna vez, para intentar reconectar
+// en silencio al abrir la app (sin popup) las próximas veces.
+const DRIVE_LINKED_KEY = 'loadout-drive-linked';
+
+// Etiqueta corta para el chip del header según el estado.
+const CHIP = {
+  '':        { label: 'Drive',        title: 'Google Drive · toca para conectar' },
+  'is-ok':   { label: 'Drive ✓',      title: 'Sincronizado con Google Drive' },
+  'is-warn': { label: 'Drive !',      title: 'Google Drive necesita tu atención' },
+  'busy':    { label: 'Drive…',       title: 'Sincronizando con Google Drive' },
+};
+
+function updateConnChip(kind) {
+  const chip = document.querySelector('#connChip');
+  const label = document.querySelector('#connLabel');
+  if (!chip || !label) return;
+  const info = CHIP[kind] ?? CHIP[''];
+  chip.hidden = false;
+  chip.className = `conn-chip ${kind}`;
+  chip.title = info.title;
+  label.textContent = info.label;
+}
 
 function setDriveStatus(text, kind = '') {
   const el = document.querySelector('#driveStatus');
   if (el) { el.textContent = text; el.className = `drive-status ${kind}`; }
+  updateConnChip(kind);
 }
 
 // --- Autorización -----------------------------------------------------------
@@ -39,19 +63,33 @@ function initDrive() {
       client_id: GOOGLE_CLIENT_ID,
       scope: DRIVE_SCOPE,
       callback: response => {
-        if (response.error) return setDriveStatus('No se pudo autorizar.', 'is-warn');
+        if (response.error) {
+          // Falló la reconexión silenciosa: no es un error visible, solo pide tocar.
+          if (driveSilent) { driveSilent = false; setDriveStatus('Sin conectar. Toca para sincronizar.'); return; }
+          return setDriveStatus('No se pudo autorizar.', 'is-warn');
+        }
         driveToken = response.access_token;
-        setDriveStatus('Conectado a Drive.', 'is-ok');
+        localStorage.setItem(DRIVE_LINKED_KEY, '1');
+        driveSilent = false;
         const action = drivePendingAction;
         drivePendingAction = null;
-        if (action) action();
+        if (action) action(); else setDriveStatus('Conectado a Drive.', 'is-ok');
       },
     });
-    setDriveStatus('Sin conectar.');
+    // Si ya autorizaste antes en este dispositivo, intenta reconectar sin popup.
+    if (localStorage.getItem(DRIVE_LINKED_KEY)) {
+      driveSilent = true;
+      drivePendingAction = () => driveSync({ silent: true, retry: silentSync });
+      setDriveStatus('Reconectando…', 'busy');
+      driveTokenClient.requestAccessToken({ prompt: '' });
+    } else {
+      setDriveStatus('Sin conectar. Toca para sincronizar.');
+    }
   };
   script.onerror = () => setDriveStatus('Sin conexión: Drive no disponible ahora.', 'is-warn');
   document.head.append(script);
 }
+const silentSync = () => driveSync({ silent: true, retry: silentSync }).catch(() => {});
 
 // Ejecuta `action` asegurando que haya un token válido.
 function withDriveToken(action) {
@@ -173,6 +211,7 @@ function adoptSessions(merged, reason) {
 // Núcleo de la sincronización: trae lo de Drive, lo une con lo local y sube la
 // unión. Así ningún guardado pisa datos del otro dispositivo.
 async function driveSync({ silent, retry }) {
+  setDriveStatus('Sincronizando…', 'busy');
   const fileId = await findDriveFileId(retry);
   if (fileId === undefined) return; // reintentando tras re-autorizar
 
@@ -240,4 +279,9 @@ function driveAutoSync() {
 document.querySelector('#driveConnect').onclick = () => withDriveToken(manualSync);
 document.querySelector('#driveSave').onclick = () => withDriveToken(manualSync);
 document.querySelector('#driveRestore').onclick = () => withDriveToken(driveRestore);
+// El chip del header lleva a la pestaña LOG y dispara una sincronización.
+document.querySelector('#connChip').onclick = () => {
+  document.querySelector('.tab[data-view="history"]')?.click();
+  withDriveToken(manualSync);
+};
 initDrive();

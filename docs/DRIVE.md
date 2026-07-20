@@ -94,8 +94,9 @@ No hubo conexión al abrir la app y la librería de Google no se descargó. Reca
 
 ## Limitaciones honestas
 
-- El permiso dura **~1 hora**. Sin servidor no hay forma de renovarlo en segundo plano, así
-  que cada tanto habrá que pulsar *Conectar* otra vez (suele ser un clic).
+- El permiso dura **~1 hora** por sesión. Al reabrir la app, si ya autorizaste antes en ese
+  dispositivo, se **reconecta sola sin popup** (mientras tu sesión de Google siga activa); el
+  chip del header lo refleja. Solo si esa reconexión silenciosa falla hay que tocar el chip.
 - El respaldo se sube **al terminar una sesión**, no en cada tecla. Si cierras el navegador a
   media sesión, esos datos aún no están en Drive.
 - **No es en vivo.** La fusión ocurre al sincronizar, no de forma continua. Y no propaga

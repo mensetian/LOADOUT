@@ -49,7 +49,7 @@ Decisiones de diseño que marcan el carácter del proyecto:
 
 ### 02 · LOG
 - Historial **agrupado por sesión**: rutina, fecha y movimientos, con botón **Editar**
-  para corregir sesiones viejas.
+  para corregir sesiones viejas, **incluida su fecha**.
 - Filtro por texto (rutina o ejercicio) y por período.
 - Herramientas de respaldo: **Exportar / Importar** JSON, **Deshacer** y **Google Drive**
   (ver más abajo).
@@ -95,6 +95,10 @@ límites: **[docs/DRIVE.md](docs/DRIVE.md)**.
 Al sincronizar, los dos historiales se **fusionan por id de sesión**: nunca se pierde una
 sesión, aunque entrenes en el móvil y en el PC. Se sincroniza solo al terminar cada
 entrenamiento, o a mano con **Sincronizar**.
+
+Un **chip en el header** muestra el estado (punto verde = sincronizado, rojo = requiere
+atención, parpadeo = en curso) y, al tocarlo, fuerza una sincronización. Tras autorizar una
+vez, la app **se reconecta sola al abrir**, sin volver a pedir permiso.
 
 ## Estructura del proyecto
 

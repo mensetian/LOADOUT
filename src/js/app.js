@@ -118,6 +118,7 @@ function renderActiveSession() {
   const saved = sessions.some(s=>s.id===activeSession.id);
   $('#sessionTitle').textContent = saved ? `Editando · ${dateFmt(activeSession.date)}` : 'Entrenamiento actual';
   $('#sessionName').value = activeSession.name || '';
+  $('#sessionDate').value = activeSession.date || todayKey();
   $('#deleteSession').hidden = !saved;
   refreshDatalists();
   if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else activeSession.exercises.forEach(addExercise);
@@ -222,6 +223,7 @@ function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':
 $('#today').textContent=new Intl.DateTimeFormat('es-CO',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
 $('#heroDate').textContent=new Intl.DateTimeFormat('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
 $('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
+$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; };
 $('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); };
 $('#sessionName').onfocus=openRoutinePanel;
 $('#sessionName').onkeydown=e=>{
