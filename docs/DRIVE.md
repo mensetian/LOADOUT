@@ -17,12 +17,18 @@ llamado `loadout-respaldo.json`, que puedes abrir o descargar tú mismo.
 1. Entra a **https://console.cloud.google.com/** con tu cuenta de Google.
 2. Arriba a la izquierda, **crear proyecto** → nómbralo `LOADOUT` → *Crear*.
 3. Menú **APIs y servicios → Biblioteca** → busca **Google Drive API** → *Habilitar*.
-4. Menú **APIs y servicios → Pantalla de consentimiento de OAuth**:
-   - Tipo de usuario: **Externo** → *Crear*.
+4. Configura quién puede entrar. Google renombró esta sección a **Google Auth Platform**;
+   la ruta directa es **https://console.cloud.google.com/auth/audience**
+   (o menú *APIs y servicios → Pantalla de consentimiento de OAuth*).
+   - Tipo de usuario / *Audience*: **Externo**.
    - Nombre de la app: `LOADOUT`. Correo de asistencia y de contacto: el tuyo.
-   - En **Usuarios de prueba**, añade tu propio correo de Gmail.
-   - Guardar. *(No hace falta enviar nada a verificación: con el permiso `drive.file` y
-     tu cuenta como usuario de prueba es suficiente.)*
+   - Y ahora **elige una de las dos**:
+     - **Publicar** (recomendado): botón **PUBLICAR APLICACIÓN**. Con el permiso
+       `drive.file`, que Google clasifica como *no sensible*, publicar **no exige pasar
+       por verificación**: es inmediato y te evita el error 403 para siempre.
+     - **Dejarlo en pruebas:** entonces baja a **Usuarios de prueba** → *+ Add users* y
+       añade el correo de Google exacto con el que vas a iniciar sesión. Si no lo haces,
+       Google responde `Error 403: access_denied`.
 5. Menú **APIs y servicios → Credenciales → Crear credenciales → ID de cliente de OAuth**:
    - Tipo de aplicación: **Aplicación web**.
    - En **Orígenes autorizados de JavaScript**, añade exactamente:
@@ -46,6 +52,27 @@ Al recargar la app, en la pestaña **LOG** aparecerá la tarjeta **GOOGLE DRIVE*
   siempre que ya estés conectado en esa sesión del navegador.
 - **Restaurar** — baja el respaldo (en un teléfono nuevo, por ejemplo). Antes de reemplazar
   nada guarda una copia local por si acaso.
+
+## Si algo falla
+
+**`Error 403: access_denied` — "has not completed the Google verification process"**
+El proyecto está en modo *Testing* y la cuenta con la que entras no es un tester aprobado.
+Ve a https://console.cloud.google.com/auth/audience y o bien **PUBLICAR APLICACIÓN**, o bien
+añade ese correo en **Usuarios de prueba**. Cuidado: tiene que ser **la misma cuenta** que
+usa el popup de Google; si el navegador está logueado con otra (la del trabajo, por ejemplo),
+añadir la personal no sirve.
+
+**`Error 400: redirect_uri_mismatch` o "origin not allowed"**
+El origen no coincide. En *Credenciales → tu ID de cliente → Orígenes autorizados de
+JavaScript* debe estar `https://mensetian.github.io` **sin** barra final y **sin** la ruta
+`/LOADOUT`. Los cambios tardan unos minutos en propagarse.
+
+**La tarjeta de Drive no aparece en la pestaña LOG**
+`GOOGLE_CLIENT_ID` sigue vacío en `src/js/config.js`, o el navegador está sirviendo la
+versión cacheada: cierra y reabre la PWA.
+
+**"Google aún no ha cargado"**
+No hubo conexión al abrir la app y la librería de Google no se descargó. Recarga con datos.
 
 ## Limitaciones honestas
 
