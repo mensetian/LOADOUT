@@ -48,12 +48,12 @@ function collectSession() {
 }
 function finishSession() {
   const entry=collectSession(); if(!entry.exercises.length) return alert('Añade al menos un ejercicio y una serie antes de guardar.');
-  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest();
+  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
   alert(prs.length?`🏆 ¡NUEVO RÉCORD PERSONAL!\n\n${prs.join('\n')}\n\nEntrenamiento guardado.`:'Entrenamiento guardado. Tu siguiente marca empieza aquí.');
 }
 function updateDashboard() {
   const cutoff=new Date();cutoff.setDate(cutoff.getDate()-6); const recent=sessions.filter(s=>new Date(s.date+'T12:00')>=cutoff); const sets=recent.flatMap(s=>s.exercises.flatMap(e=>e.sets));
-  $('#weekSessions').textContent=recent.length; $('#weekSets').textContent=sets.length; $('#weekVolume').textContent=Math.round(sets.reduce((t,s)=>t+s.weight*s.reps,0)).toLocaleString('es-CO'); renderHistory(); populateProgress();
+  $('#weekSessions').textContent=recent.length; $('#weekSets').textContent=sets.length; $('#weekVolume').textContent=Math.round(sets.reduce((t,s)=>t+s.weight*s.reps,0)).toLocaleString('es-CO'); renderHistory(); populateProgress(); window.renderBackupStatus?.();
 }
 function renderHistory() {
   const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value); let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)); if(period){const d=new Date();d.setDate(d.getDate()-period);data=data.filter(s=>new Date(s.date+'T12:00')>=d)}
@@ -118,11 +118,11 @@ $('#loadRoutine').onclick=()=>{
   prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
   if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
 };
-$('#deleteSession').onclick=()=>{if(confirm('¿Descartar este entrenamiento? No se podrá recuperar.')){sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
+$('#deleteSession').onclick=()=>{if(confirm('¿Descartar este entrenamiento? Quedará una copia local por si te arrepientes.')){window.snapshot?.('antes de borrar una sesión');sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
-$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`loadout-respaldo-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);};
-$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!confirm(`¿Restaurar ${payload.sessions.length} sesiones? Esto reemplazará los datos actuales de este navegador.`))return;sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();alert('Respaldo restaurado correctamente.');}catch{alert('Este archivo no parece ser un respaldo válido de LOADOUT.');}finally{event.target.value='';}};
+$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`loadout-respaldo-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
+$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!confirm(`¿Restaurar ${payload.sessions.length} sesiones? Esto reemplazará los datos actuales de este navegador.`))return;window.snapshot?.('antes de importar un archivo');sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();alert('Respaldo restaurado correctamente.');}catch{alert('Este archivo no parece ser un respaldo válido de LOADOUT.');}finally{event.target.value='';}};
 renderActiveSession();updateDashboard();
 
 if('serviceWorker' in navigator && location.protocol!=='file:')navigator.serviceWorker.register('sw.js');

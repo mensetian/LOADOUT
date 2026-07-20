@@ -59,3 +59,8 @@ body.rest-active .app-shell{padding-bottom:130px}
   .tabs{gap:22px}
   .tab{padding:16px 0 13px}
 }
+
+/* Estado de respaldo y sincronización */
+.backup-status,.drive-status{margin:6px 0 0;font:10px var(--mono);color:var(--muted)}
+.backup-status.is-warn,.drive-status.is-warn{color:var(--red)}
+.drive-status.is-ok{color:var(--hot)}

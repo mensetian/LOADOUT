@@ -55,10 +55,15 @@ LOADOUT/
 ├── README.md
 ├── .gitignore
 ├── docs/
-│   └── ROADMAP.md      ← estado y próximos pasos
+│   ├── ROADMAP.md      ← estado y próximos pasos
+│   └── DRIVE.md        ← cómo activar la sincronización con Drive
 └── src/
     ├── css/styles.css  ← estilos, tema claro/oscuro, responsive
-    ├── js/app.js       ← lógica: sesiones, historial, métricas, timer, backup
+    ├── js/
+    │   ├── config.js   ← Client ID de Google (vacío = Drive desactivado)
+    │   ├── app.js      ← lógica: sesiones, historial, métricas, timer
+    │   ├── backup.js   ← durabilidad local: persistencia, copias, avisos
+    │   └── drive.js    ← sincronización opcional con Google Drive
     └── img/icon.svg    ← icono de la app
 ```
 
@@ -106,8 +111,17 @@ si tenías la PWA instalada desde la URL vieja, reinstálala desde la nueva.
 
 ### Datos y respaldos
 
-- Los datos viven en el `localStorage` de **cada dispositivo/navegador** — el celular y el PC no se sincronizan entre sí.
-- Usa **Exportar datos** (pestaña LOG) periódicamente como respaldo, e **Importar datos** para restaurar o migrar a otro dispositivo.
+Los datos viven en el `localStorage` de **cada dispositivo/navegador**. Hay tres capas de protección:
+
+| Capa | Qué protege | Qué **no** protege |
+|---|---|---|
+| **Almacenamiento persistente** (automático) | Que el navegador borre los datos al liberar espacio | Borrado manual, perder el dispositivo |
+| **Copias locales** (automáticas, botón *Copia local*) | Borrados accidentales dentro de la app: eliminar una sesión, importar mal | "Borrar datos de navegación", perder el dispositivo |
+| **Exportar JSON** / **Google Drive** | Todo lo anterior, incluido perder el teléfono | — |
+
+- La pestaña **LOG** avisa cuánto hace del último respaldo real y marca en rojo si pasan 7 días.
+- **Instalar la PWA importa:** Safari borra el almacenamiento de sitios que no abres en ~7 días; las apps añadidas a la pantalla de inicio quedan fuera de esa regla.
+- Para activar Drive: **[docs/DRIVE.md](docs/DRIVE.md)**.
 
 ## Roadmap
 
