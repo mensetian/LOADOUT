@@ -32,9 +32,65 @@ const dateFmt = d => new Intl.DateTimeFormat('es-CO', {day:'numeric', month:'sho
 const todayKey = () => new Date().toISOString().slice(0,10);
 
 function makeSession() { return { id: crypto.randomUUID(), date: todayKey(), name: '', exercises: [] }; }
-function routineNames() { return [...new Set(sessions.map(s=>(s.name||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
 function exerciseNames() { return [...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name.trim())).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
-function refreshDatalists() { $('#routineNames').innerHTML=routineNames().map(n=>`<option value="${escapeHtml(n)}">`).join(''); $('#exerciseNames').innerHTML=exerciseNames().map(n=>`<option value="${escapeHtml(n)}">`).join(''); }
+function refreshDatalists() { $('#exerciseNames').innerHTML=exerciseNames().map(n=>`<option value="${escapeHtml(n)}">`).join(''); }
+
+// --- Selector de rutina -----------------------------------------------------
+// Una rutina por nombre, con la fecha en que la hiciste por última vez.
+function routineSummaries() {
+  const map = new Map();
+  [...sessions].sort((a,b)=>b.date.localeCompare(a.date)).forEach(s=>{
+    const name=(s.name||'').trim(); if(!name) return;
+    const key=name.toLowerCase();
+    if(!map.has(key)) map.set(key,{name, date:s.date, moves:s.exercises.length, times:0});
+    map.get(key).times++;
+  });
+  return [...map.values()].sort((a,b)=>b.date.localeCompare(a.date));
+}
+function daysAgoLabel(dateKey) {
+  const days=Math.round((new Date(todayKey()+'T12:00')-new Date(dateKey+'T12:00'))/86400000);
+  if(days<=0) return 'hoy';
+  if(days===1) return 'ayer';
+  if(days<7) return `hace ${days} días`;
+  if(days<14) return 'hace 1 semana';
+  if(days<31) return `hace ${Math.floor(days/7)} semanas`;
+  const months=Math.floor(days/30);
+  return months===1 ? 'hace 1 mes' : `hace ${months} meses`;
+}
+function renderRoutinePanel(filter='') {
+  const term=filter.trim().toLowerCase();
+  const items=routineSummaries().filter(r=>r.name.toLowerCase().includes(term));
+  const panel=$('#routinePanel');
+  if(!items.length){
+    panel.innerHTML=`<p class="routine-empty">${sessions.some(s=>(s.name||'').trim())
+      ? 'Ninguna rutina coincide. Sigue escribiendo para crear una nueva.'
+      : 'Todavía no tienes rutinas guardadas. Escribe un nombre y aparecerá aquí la próxima vez.'}</p>`;
+    return;
+  }
+  panel.innerHTML=items.map(r=>`<button type="button" class="routine-option" role="option" data-name="${escapeHtml(r.name)}"><span class="routine-option-name">${escapeHtml(r.name)}</span><span class="routine-option-meta">${daysAgoLabel(r.date)} · ${r.moves} movimientos · ${r.times}${r.times===1?' vez':' veces'}</span></button>`).join('');
+  $$('.routine-option',panel).forEach(b=>b.onclick=()=>pickRoutine(b.dataset.name));
+}
+function openRoutinePanel() {
+  renderRoutinePanel($('#sessionName').value);
+  $('#routinePanel').hidden=false; $('#sessionName').setAttribute('aria-expanded','true');
+}
+function closeRoutinePanel() {
+  $('#routinePanel').hidden=true; $('#sessionName').setAttribute('aria-expanded','false');
+}
+function pickRoutine(name) {
+  $('#sessionName').value=name;
+  if(activeSession) activeSession.name=name;
+  closeRoutinePanel();
+}
+// Navegación con flechas para escritorio.
+function moveRoutineHighlight(step) {
+  const options=$$('.routine-option'); if(!options.length) return;
+  const current=options.findIndex(o=>o.classList.contains('is-active'));
+  const next=(current+step+options.length)%options.length;
+  options.forEach(o=>o.classList.remove('is-active'));
+  options[next].classList.add('is-active');
+  options[next].scrollIntoView({block:'nearest'});
+}
 function lastSessionByRoutine(name) { const key=name.trim().toLowerCase(); if(!key) return null; return sessions.filter(s=>s.id!==activeSession?.id && (s.name||'').trim().toLowerCase()===key).sort((a,b)=>b.date.localeCompare(a.date))[0]||null; }
 function getLastExercise(name) {
   const key = name.trim().toLowerCase(); if (!key) return null;
@@ -165,7 +221,16 @@ function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':
 $('#today').textContent=new Intl.DateTimeFormat('es-CO',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
 $('#heroDate').textContent=new Intl.DateTimeFormat('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
 $('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
-$('#sessionName').oninput=()=>{if(activeSession)activeSession.name=$('#sessionName').value;};
+$('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); };
+$('#sessionName').onfocus=openRoutinePanel;
+$('#sessionName').onkeydown=e=>{
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); if($('#routinePanel').hidden)openRoutinePanel(); moveRoutineHighlight(e.key==='ArrowDown'?1:-1); return; }
+  if(e.key==='Enter'){ const active=$('.routine-option.is-active'); if(active){ e.preventDefault(); pickRoutine(active.dataset.name); } else closeRoutinePanel(); return; }
+  if(e.key==='Escape') closeRoutinePanel();
+};
+$('#routineToggle').onclick=()=>{ if($('#routinePanel').hidden){ openRoutinePanel(); $('#sessionName').focus(); } else closeRoutinePanel(); };
+// Cerrar al tocar fuera del campo.
+document.addEventListener('click',e=>{ if(!e.target.closest('.routine-field')) closeRoutinePanel(); });
 $('#loadRoutine').onclick=async ()=>{
   const prev=lastSessionByRoutine($('#sessionName').value);
   if(!prev){ await showAlert('Escribe el nombre de una rutina que ya hayas guardado (ej. Pecho) para cargar sus ejercicios.'); return; }

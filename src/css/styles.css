@@ -87,3 +87,22 @@ body.modal-open{overflow:hidden}
 .drive-status.is-ok{color:var(--hot)}
 .secondary-button:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--muted)}
 .secondary-button:disabled:hover{border-color:var(--line);color:var(--muted)}
+
+/* === Selector de rutina (reemplaza el datalist nativo) === */
+.routine-field{position:relative;flex:1;min-width:200px;display:flex;align-items:center}
+.routine-field input{flex:1;width:100%;padding-right:38px}
+.routine-toggle{position:absolute;right:6px;display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:4px;background:transparent;color:var(--muted);font-size:13px;cursor:pointer}
+.routine-toggle:hover{color:var(--hot)}
+.routine-panel{position:absolute;z-index:40;top:calc(100% + 6px);left:0;right:0;max-height:270px;overflow-y:auto;border:1px solid var(--hot);border-radius:6px;background:var(--panel);box-shadow:0 14px 40px rgba(0,0,0,.5)}
+.routine-option{display:flex;flex-direction:column;gap:3px;width:100%;padding:12px 14px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.routine-option:last-child{border-bottom:0}
+.routine-option:hover,.routine-option.is-active{background:var(--panel2)}
+.routine-option-name{font:700 15px var(--display);letter-spacing:.02em;text-transform:uppercase}
+.routine-option-meta{color:var(--muted);font:9px var(--mono)}
+.routine-empty{margin:0;padding:16px;color:var(--muted);font:10px var(--mono);line-height:1.6}
+@media(max-width:720px){
+  .routine-field{min-width:100%}
+  .routine-option{padding:14px}
+  .routine-option-name{font-size:16px}
+  .routine-option-meta{font-size:10px}
+}
