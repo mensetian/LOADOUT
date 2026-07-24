@@ -20,17 +20,21 @@
 .rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);opacity:.96}
 .rest-grip{flex:none;width:12px;height:18px;background-image:radial-gradient(currentColor 1.3px,transparent 1.4px);background-size:6px 6px;color:var(--muted);opacity:.5}
 .rest-info{display:flex;flex-direction:column;gap:2px}
-.rest-info span{font:10px var(--mono);color:var(--muted);letter-spacing:.1em}
-.rest-info strong{font:800 26px var(--display);line-height:1;color:var(--hot)}
-.rest-actions{display:flex;gap:6px}
-.rest-actions button{min-width:44px;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--ink);font:11px var(--mono);cursor:pointer}
+.rest-info span{font:10px var(--mono);color:var(--muted);letter-spacing:.14em}
+/* Número protagonista: grande y con tipografía tabular para que no baile */
+.rest-info strong{font:800 46px var(--display);line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;transition:color .2s}
+.rest-timer.is-running .rest-info strong{color:var(--hot)}
+.rest-timer.is-running{box-shadow:0 10px 34px rgba(0,0,0,.45),0 0 0 1px var(--hot)}
+/* Opciones sugeridas pequeñas: chips compactos que envuelven en 2 filas */
+.rest-actions{display:flex;flex-wrap:wrap;gap:5px;max-width:132px}
+.rest-actions button{min-width:38px;padding:5px 7px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:600 11px var(--mono);cursor:pointer}
 .rest-actions button:hover{border-color:var(--hot);color:var(--hot)}
-.rest-stop{color:var(--red)}
-/* Deja espacio al final para que el timer no tape el contenido */
-body.rest-active .app-shell{padding-bottom:130px}
+.rest-stop{color:var(--red);min-width:30px!important}
+/* Deja espacio al final para que el contador fijo no tape el contenido */
+.app-shell{padding-bottom:132px}
 /* Toggle del timer en la barra superior */
 .icon-btn.is-on{border-color:var(--hot);color:var(--hot);background:color-mix(in srgb,var(--hot) 14%,transparent)}
-@media(max-width:560px){.rest-timer{left:12px;right:12px;justify-content:space-between;padding:11px 13px}.rest-info strong{font-size:23px}body.rest-active .app-shell{padding-bottom:120px}}
+@media(max-width:560px){.rest-timer{left:12px;right:12px;justify-content:space-between;padding:11px 13px}.rest-info strong{font-size:40px}.rest-actions{max-width:126px}.app-shell{padding-bottom:122px}}
 
 /* === Fix: el atributo hidden debe ocultar siempre (empty-state usa display:grid) === */
 [hidden]{display:none!important}

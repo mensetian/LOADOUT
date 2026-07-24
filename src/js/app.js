@@ -208,9 +208,9 @@ function startRest(seconds=restDuration){
 function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');$('#restToggle').classList.remove('is-on');$('#restToggle').title=t('rest.start');$('#restDisplay').textContent=fmtRest(restDuration);}
 function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 $('#restToggle').onclick=()=>{ restInterval?stopRest():startRest(); };
-$('#exerciseList').addEventListener('change',e=>{if(e.target.matches('.set-reps')&&e.target.value)startRest();});
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
 $('#restStop').onclick=stopRest;
+$('#restDisplay').textContent=fmtRest(restDuration);
 
 // --- Arrastrar el temporizador de descanso y recordar su posición ---
 const REST_POS_KEY='loadout-rest-pos';
