@@ -16,9 +16,10 @@
 .edit-session{white-space:nowrap}
 
 /* Temporizador de descanso */
-.rest-timer{position:fixed;left:clamp(16px,4vw,32px);bottom:18px;z-index:60;display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--hot);border-radius:var(--radius);background:var(--panel);box-shadow:0 10px 34px rgba(0,0,0,.45);touch-action:none;cursor:grab;user-select:none}
-.rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);opacity:.96}
+.rest-timer{position:fixed;left:clamp(16px,4vw,32px);bottom:18px;z-index:60;display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--hot);border-radius:var(--radius);background:var(--panel);box-shadow:0 10px 34px rgba(0,0,0,.45);touch-action:none;cursor:grab;user-select:none;transition:left .24s cubic-bezier(.22,1,.36,1),top .24s cubic-bezier(.22,1,.36,1),border-radius .2s ease,box-shadow .2s ease}
+.rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);opacity:.96;transition:none}
 .rest-grip{flex:none;width:12px;height:18px;background-image:radial-gradient(currentColor 1.3px,transparent 1.4px);background-size:6px 6px;color:var(--muted);opacity:.5}
+.rest-peek{display:none}
 .rest-info{display:flex;flex-direction:column;gap:2px}
 .rest-info span{font:10px var(--mono);color:var(--muted);letter-spacing:.14em}
 /* Número protagonista: grande y con tipografía tabular para que no baile */
@@ -30,11 +31,22 @@
 .rest-actions button{min-width:38px;padding:5px 7px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:600 11px var(--mono);cursor:pointer}
 .rest-actions button:hover{border-color:var(--hot);color:var(--hot)}
 .rest-stop{color:var(--red);min-width:30px!important}
+/* Manija para plegar el contador hacia el borde */
+.rest-fold{flex:none;width:22px;height:44px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
+.rest-fold:hover{border-color:var(--hot);color:var(--hot)}
+/* Colapsado: pestaña delgada pegada a un borde de la pantalla */
+.rest-timer.collapsed{flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:12px 8px;min-height:62px;cursor:pointer}
+.rest-timer.collapsed .rest-grip,.rest-timer.collapsed .rest-info span,.rest-timer.collapsed .rest-actions,.rest-timer.collapsed .rest-fold{display:none}
+.rest-timer.collapsed .rest-info{display:none}
+.rest-timer.collapsed .rest-peek{display:block;font-size:20px;line-height:1;color:var(--muted)}
+.rest-timer.collapsed.is-running .rest-peek{display:none}
+.rest-timer.collapsed.is-running .rest-info{display:block}
+.rest-timer.collapsed .rest-info strong{writing-mode:vertical-rl;font-size:17px;letter-spacing:.06em;color:var(--hot)}
+.rest-timer.collapsed-left{border-radius:0 var(--radius) var(--radius) 0;border-left-color:transparent}
+.rest-timer.collapsed-right{border-radius:var(--radius) 0 0 var(--radius);border-right-color:transparent}
 /* Deja espacio al final para que el contador fijo no tape el contenido */
 .app-shell{padding-bottom:132px}
-/* Toggle del timer en la barra superior */
-.icon-btn.is-on{border-color:var(--hot);color:var(--hot);background:color-mix(in srgb,var(--hot) 14%,transparent)}
-@media(max-width:560px){.rest-timer{left:12px;right:12px;justify-content:space-between;padding:11px 13px}.rest-info strong{font-size:40px}.rest-actions{max-width:126px}.app-shell{padding-bottom:122px}}
+@media(max-width:560px){.rest-timer{left:12px;right:auto;padding:11px 13px}.rest-info strong{font-size:40px}.rest-actions{max-width:126px}.app-shell{padding-bottom:122px}}
 
 /* === Fix: el atributo hidden debe ocultar siempre (empty-state usa display:grid) === */
 [hidden]{display:none!important}

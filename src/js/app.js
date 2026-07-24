@@ -241,51 +241,85 @@ let restInterval=null, restEnds=0, restDuration=90;
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
   restDuration=seconds; restEnds=Date.now()+seconds*1000; clearInterval(restInterval);
-  $('#restTimer').classList.add('is-running'); $('#restToggle').classList.add('is-on'); $('#restToggle').title=t('rest.running');
+  $('#restTimer').classList.add('is-running');
   const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); $('#restDisplay').textContent=fmtRest(left);
     if(left<=0){stopRest(); beep(); if(navigator.vibrate)navigator.vibrate([200,100,200]);}};
   tick(); restInterval=setInterval(tick,250);
 }
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
-function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');$('#restToggle').classList.remove('is-on');$('#restToggle').title=t('rest.start');$('#restDisplay').textContent=fmtRest(restDuration);}
+function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');$('#restDisplay').textContent=fmtRest(restDuration);}
 function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
-$('#restToggle').onclick=()=>{ restInterval?stopRest():startRest(); };
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
 $('#restStop').onclick=stopRest;
 $('#restDisplay').textContent=fmtRest(restDuration);
 
-// --- Arrastrar el temporizador de descanso y recordar su posición ---
+// --- Posición del contador: arrastrar, deslizar a un borde y recordar el estado ---
 const REST_POS_KEY='loadout-rest-pos';
+function readRestState(){ try{ return JSON.parse(localStorage.getItem(REST_POS_KEY))||{}; }catch{ return {}; } }
+function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s)); }
 function clampRestPos(left,top){
   const el=$('#restTimer'), pad=8; const w=el.offsetWidth||220, h=el.offsetHeight||70;
   const maxLeft=window.innerWidth-w-pad, maxTop=window.innerHeight-h-pad;
   return {left:Math.min(Math.max(pad,left),Math.max(pad,maxLeft)), top:Math.min(Math.max(pad,top),Math.max(pad,maxTop))};
 }
-function applyRestPos(pos){
-  const el=$('#restTimer'); if(!pos)return;
-  el.style.left=pos.left+'px'; el.style.top=pos.top+'px'; el.style.bottom='auto'; el.style.right='auto';
-}
-(function initRestDrag(){
+function placeExpanded(left,top){
   const el=$('#restTimer');
-  const saved=JSON.parse(localStorage.getItem(REST_POS_KEY)||'null');
-  if(saved) applyRestPos(saved);
-  let dragging=false, offX=0, offY=0, moved=false;
+  el.classList.remove('collapsed','collapsed-left','collapsed-right');
+  const pos=clampRestPos(left,top);
+  el.style.left=pos.left+'px'; el.style.top=pos.top+'px'; el.style.right='auto'; el.style.bottom='auto';
+  return pos;
+}
+// Colapsa el contador contra un borde dejando solo una pestaña visible.
+function collapseRest(side){
+  const el=$('#restTimer');
+  const cur=parseFloat(el.style.top); const curTop=Number.isFinite(cur)?cur:el.getBoundingClientRect().top;
+  el.classList.add('collapsed'); el.classList.remove('collapsed-left','collapsed-right'); el.classList.add('collapsed-'+side);
+  el.style.right='auto'; el.style.bottom='auto';
+  const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad;
+  const top=Math.min(Math.max(pad,curTop),Math.max(pad,maxTop));
+  const left=side==='left' ? 0 : window.innerWidth-el.offsetWidth;
+  el.style.left=left+'px'; el.style.top=top+'px';
+  saveRestState({collapsed:true, side, top});
+}
+function expandRest(){
+  const el=$('#restTimer'); const st=readRestState();
+  const top=el.getBoundingClientRect().top;
+  el.classList.remove('collapsed','collapsed-left','collapsed-right');
+  el.style.left='0px'; el.style.right='auto'; el.style.bottom='auto'; el.style.top=top+'px';
+  const left=st.side==='right' ? window.innerWidth-el.offsetWidth-12 : 12;
+  const pos=placeExpanded(left,top);
+  saveRestState({collapsed:false, side:st.side, left:pos.left, top:pos.top});
+}
+(function initRest(){
+  const el=$('#restTimer');
+  const st=readRestState();
+  if(st.collapsed){ if(Number.isFinite(st.top)){ el.style.top=st.top+'px'; el.style.bottom='auto'; } collapseRest(st.side||'left'); }
+  else if(Number.isFinite(st.left)) placeExpanded(st.left,st.top);
+  let dragging=false, offX=0, offY=0, sx=0, sy=0, moved=false, lastX=0;
   el.addEventListener('pointerdown',e=>{
-    if(e.target.closest('button'))return;
-    dragging=true; moved=false; el.setPointerCapture(e.pointerId);
+    if(el.classList.contains('collapsed')) return;   // colapsado: un toque lo despliega
+    if(e.target.closest('button')) return;           // desplegado: los botones funcionan normal
+    dragging=true; moved=false; sx=e.clientX; sy=e.clientY; lastX=e.clientX; el.setPointerCapture(e.pointerId);
     const rect=el.getBoundingClientRect(); offX=e.clientX-rect.left; offY=e.clientY-rect.top;
     el.classList.add('dragging');
   });
   el.addEventListener('pointermove',e=>{
-    if(!dragging)return; moved=true;
-    const pos=clampRestPos(e.clientX-offX,e.clientY-offY); applyRestPos(pos);
+    if(!dragging)return; lastX=e.clientX;
+    if(Math.hypot(e.clientX-sx,e.clientY-sy)>6) moved=true;
+    if(moved) placeExpanded(e.clientX-offX,e.clientY-offY);
   });
   const endDrag=e=>{
     if(!dragging)return; dragging=false; el.classList.remove('dragging');
-    if(moved){ const rect=el.getBoundingClientRect(); const pos=clampRestPos(rect.left,rect.top); applyRestPos(pos); localStorage.setItem(REST_POS_KEY,JSON.stringify(pos)); }
+    if(!moved) return;
+    const x=Number.isFinite(e.clientX)?e.clientX:lastX, edge=70;
+    if(x<edge) collapseRest('left');
+    else if(x>window.innerWidth-edge) collapseRest('right');
+    else { const rect=el.getBoundingClientRect(); const pos=placeExpanded(rect.left,rect.top); saveRestState({collapsed:false, side:pos.left<window.innerWidth/2?'left':'right', left:pos.left, top:pos.top}); }
   };
   el.addEventListener('pointerup',endDrag); el.addEventListener('pointercancel',endDrag);
-  window.addEventListener('resize',()=>{ const saved=JSON.parse(localStorage.getItem(REST_POS_KEY)||'null'); if(saved){ const pos=clampRestPos(saved.left,saved.top); applyRestPos(pos); } });
+  el.addEventListener('click',()=>{ if(el.classList.contains('collapsed')) expandRest(); });
+  $('#restFold').onclick=e=>{ e.stopPropagation(); const rect=el.getBoundingClientRect(); collapseRest(rect.left+rect.width/2<window.innerWidth/2?'left':'right'); };
+  window.addEventListener('resize',()=>{ const s=readRestState(); if(s.collapsed) collapseRest(s.side||'left'); else if(Number.isFinite(s.left)) placeExpanded(s.left,s.top); });
 })();
 
 // --- Bienvenida (hero) solo la primera vez ---
