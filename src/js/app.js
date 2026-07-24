@@ -25,11 +25,28 @@ function openDialog(message, {okText='Aceptar', cancelText=null, danger=false} =
 function showAlert(message) { return openDialog(message); }
 function showConfirm(message, opts = {}) { return openDialog(message, { okText: t('modal.confirm'), cancelText: t('modal.cancel'), ...opts }); }
 const KEY = 'gymlog-sessions-v1';
+const DRAFT_KEY = 'loadout-draft-v1';
 let sessions = JSON.parse(localStorage.getItem(KEY) || '[]');
 let activeSession = null;
+let restoring = false; // evita reescribir el borrador mientras se pinta la sesión
 const save = () => localStorage.setItem(KEY, JSON.stringify(sessions));
-const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d));
-const todayKey = () => new Date().toISOString().slice(0,10);
+
+// --- Borrador de la sesión en curso -----------------------------------------
+// Guarda todo lo tecleado (aunque esté a medias) para no perderlo al recargar.
+function collectDraft() {
+  const exercises = $$('.exercise-card').map(card => ({
+    name: $('.exercise-name', card).value,
+    done: card.classList.contains('is-collapsed'),
+    sets: $$('.set-row', card).map(r => ({ weight: $('.set-weight', r).value, reps: $('.set-reps', r).value })),
+  }));
+  return { ...activeSession, name: $('#sessionName').value, date: $('#sessionDate').value || activeSession?.date, exercises };
+}
+function draftHasContent(d) { return !!d && Array.isArray(d.exercises) && d.exercises.some(e => (e.name || '').trim() || e.sets?.some(s => s.weight || s.reps)); }
+function saveDraft() { if (restoring || !activeSession) return; localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraft())); }
+function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
+const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d+'T12:00'));
+// Fecha local (no UTC): con toISOString por la noche saltaba al día siguiente.
+const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 
 function makeSession() { return { id: crypto.randomUUID(), date: todayKey(), name: '', exercises: [] }; }
 function exerciseNames() { return [...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name.trim())).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
@@ -103,22 +120,38 @@ function addSet(card, values = {}) {
   $('.set-reps',node).placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
   $('.remove-set',node).title = t('set.removeTitle');
   $('.set-rows',card).append(node); refreshSetNumbers(card);
-  $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); };
+  $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); saveDraft(); };
 }
 function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textContent=`${String(i+1).padStart(2,'0')}`); }
+// Resumen compacto que se muestra cuando el movimiento está colapsado/terminado.
+function exerciseSummaryText(card) {
+  const sets=$$('.set-row',card).map(r=>({w:$('.set-weight',r).value,reps:$('.set-reps',r).value})).filter(s=>s.w||s.reps);
+  return sets.length ? sets.map(s=>`${s.w||0}×${s.reps||0}`).join(' · ') : t('exercise.noSets');
+}
+function setCollapsed(card, collapsed) {
+  card.classList.toggle('is-collapsed', collapsed);
+  const summary=$('.exercise-summary',card);
+  summary.hidden=!collapsed; if(collapsed) summary.textContent=exerciseSummaryText(card);
+  const btn=$('.collapse-exercise',card);
+  btn.textContent=collapsed?'↺':'✓'; btn.title=t(collapsed?'exercise.expand':'exercise.collapse');
+}
 function addExercise(data = {}) {
   $('#sessionEmpty').hidden = true;
   const card = $('#exerciseTemplate').content.firstElementChild.cloneNode(true); $('.exercise-name',card).value = data.name || '';
   $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
   $('.remove-exercise',card).title = t('exercise.removeTitle');
+  $('.collapse-exercise',card).title = t('exercise.collapse');
   $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.load'),t('set.label.reps'),''][i] ?? ''; });
   $('.add-set',card).textContent = t('set.add');
   (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
   $('.exercise-name',card).oninput = () => updateLast(card); $('.exercise-name',card).onblur = () => updateLast(card);
-  $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; };
+  $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); saveDraft(); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
+  $('.collapse-exercise',card).onclick = () => { setCollapsed(card, !card.classList.contains('is-collapsed')); saveDraft(); };
   $('#exerciseList').append(card); updateLast(card);
+  if(data.done) setCollapsed(card, true);
 }
 function renderActiveSession() {
+  restoring = true;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   if (!activeSession) activeSession = makeSession();
   const saved = sessions.some(s=>s.id===activeSession.id);
@@ -128,6 +161,7 @@ function renderActiveSession() {
   $('#deleteSession').hidden = !saved;
   refreshDatalists();
   if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else activeSession.exercises.forEach(addExercise);
+  restoring = false;
 }
 function collectSession() {
   const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:Number($('.set-weight',r).value)||0,reps:Number($('.set-reps',r).value)||0})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
@@ -136,7 +170,7 @@ function collectSession() {
 async function finishSession() {
   const entry=collectSession(); if(!entry.exercises.length){ await showAlert(t('session.needExercise')); return; }
   entry.updatedAt=new Date().toISOString(); // sella la edición para resolver conflictos al fusionar con Drive
-  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
+  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
   await showAlert(prs.length?t('session.pr',{list:prs.join('\n')}):t('session.saved'));
 }
 function updateDashboard() {
@@ -231,9 +265,11 @@ function renderTodayDates(){
   $('#heroDate').textContent=new Intl.DateTimeFormat(dateLocale(),{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
 }
 renderTodayDates();
-$('#addExercise').onclick=()=>addExercise(); $('#emptyAddExercise').onclick=()=>addExercise(); $('#finishSession').onclick=finishSession;
-$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; };
-$('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); };
+$('#addExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#emptyAddExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#finishSession').onclick=finishSession;
+$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; saveDraft(); };
+$('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); saveDraft(); };
+// Cualquier tecleo en series/nombres del ejercicio persiste el borrador.
+$('#exerciseList').addEventListener('input', saveDraft);
 $('#sessionName').onfocus=openRoutinePanel;
 $('#sessionName').onkeydown=e=>{
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); if($('#routinePanel').hidden)openRoutinePanel(); moveRoutineHighlight(e.key==='ArrowDown'?1:-1); return; }
@@ -250,17 +286,23 @@ $('#loadRoutine').onclick=async ()=>{
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
   if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
+  saveDraft();
 };
 $('#clearSession').onclick=async ()=>{
   if(!$('#exerciseList').children.length)return;
   if(!(await showConfirm(t('session.clearConfirm'), {danger:true, okText:t('session.clearOk')})))return;
-  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false;
+  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false; saveDraft();
 };
-$('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();activeSession=makeSession();renderActiveSession();updateDashboard();}};
+$('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
 $('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
-$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;save();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
+$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
+// Recupera el borrador de la sesión en curso si se recargó/cerró sin finalizar.
+(function restoreDraft(){
+  const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');
+  if(draftHasContent(draft)) activeSession=draft; else clearDraft();
+})();
 renderActiveSession();updateDashboard();
 window.onLangChange=()=>{ renderTodayDates(); renderActiveSession(); updateDashboard(); };
 

@@ -120,6 +120,15 @@ body.modal-open{overflow:hidden}
 /* === Selector de idioma === */
 .lang-btn{font:800 11px var(--mono);letter-spacing:.04em}
 
+/* === Movimiento colapsable / terminado === */
+.collapse-exercise{width:36px;height:36px;border-radius:var(--radius-sm);background:var(--panel2);border:0;color:var(--muted);font-size:15px;cursor:pointer}
+.collapse-exercise:hover{color:var(--hot)}
+.exercise-summary{margin:6px 0 0;color:var(--hot2);font:11px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.exercise-card.is-collapsed{border-left-color:var(--hot2);opacity:.9}
+.exercise-card.is-collapsed .sets,.exercise-card.is-collapsed .add-set,.exercise-card.is-collapsed .last-time{display:none}
+.exercise-card.is-collapsed .exercise-head{padding-bottom:0;border-bottom:0}
+.exercise-card.is-collapsed .collapse-exercise{color:var(--hot2)}
+
 /* === Campo de fecha de la sesión === */
 .routine-date{display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:3px;background:var(--panel);color:var(--muted);font:10px var(--mono);letter-spacing:.06em}
 .routine-date input{border:0;background:transparent;color:var(--ink);font:12px var(--mono);outline:none;color-scheme:dark}
