@@ -237,18 +237,18 @@ function renderProgress() {
   $$('.metric-switch button').forEach(b=>b.onclick=()=>{ progressMetric=b.dataset.metric; renderProgress(); });
 }
 // --- Temporizador de descanso ---
-let restInterval=null, restEnds=0, restDuration=90;
+let restInterval=null, restEnds=0, restDuration=Number(localStorage.getItem('loadout-rest-default'))||90;
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
   restDuration=seconds; restEnds=Date.now()+seconds*1000; clearInterval(restInterval);
   $('#restTimer').classList.add('is-running');
   const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); $('#restDisplay').textContent=fmtRest(left);
-    if(left<=0){stopRest(); beep(); if(navigator.vibrate)navigator.vibrate([200,100,200]);}};
+    if(left<=0){stopRest(); beep(); if(navigator.vibrate && localStorage.getItem('loadout-vibrate')!=='off')navigator.vibrate([200,100,200]);}};
   tick(); restInterval=setInterval(tick,250);
 }
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
 function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');$('#restDisplay').textContent=fmtRest(restDuration);}
-function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
+function beep(){if(localStorage.getItem('loadout-sound')==='off')return;try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
 $('#restStop').onclick=stopRest;
 $('#restDisplay').textContent=fmtRest(restDuration);
@@ -295,10 +295,11 @@ function expandRest(){
   const st=readRestState();
   if(st.collapsed){ if(Number.isFinite(st.top)){ el.style.top=st.top+'px'; el.style.bottom='auto'; } collapseRest(st.side||'left'); }
   else if(Number.isFinite(st.left)) placeExpanded(st.left,st.top);
-  let dragging=false, offX=0, offY=0, sx=0, sy=0, moved=false, lastX=0;
+  let dragging=false, offX=0, offY=0, sx=0, sy=0, moved=false, lastX=0, downOnNumber=false;
   el.addEventListener('pointerdown',e=>{
     if(el.classList.contains('collapsed')) return;   // colapsado: un toque lo despliega
     if(e.target.closest('button')) return;           // desplegado: los botones funcionan normal
+    downOnNumber=!!e.target.closest('.rest-info');   // toque sobre el número = play/pausa
     dragging=true; moved=false; sx=e.clientX; sy=e.clientY; lastX=e.clientX; el.setPointerCapture(e.pointerId);
     const rect=el.getBoundingClientRect(); offX=e.clientX-rect.left; offY=e.clientY-rect.top;
     el.classList.add('dragging');
@@ -310,7 +311,8 @@ function expandRest(){
   });
   const endDrag=e=>{
     if(!dragging)return; dragging=false; el.classList.remove('dragging');
-    if(!moved) return;
+    // Un toque sin arrastrar sobre el número inicia o detiene la cuenta.
+    if(!moved){ if(downOnNumber) restInterval?stopRest():startRest(); return; }
     const x=Number.isFinite(e.clientX)?e.clientX:lastX, edge=70;
     if(x<edge) collapseRest('left');
     else if(x>window.innerWidth-edge) collapseRest('right');
@@ -376,7 +378,7 @@ $('#clearSession').onclick=async ()=>{
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false; saveDraft();
 };
 $('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();}};
-$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();});
+$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='config')window.renderConfig?.();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
 $('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
 $('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};

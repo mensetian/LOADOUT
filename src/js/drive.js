@@ -277,7 +277,7 @@ document.querySelector('#driveSave').onclick = () => withDriveToken(manualSync);
 document.querySelector('#driveRestore').onclick = () => withDriveToken(driveRestore);
 // El chip del header lleva a la pestaña LOG y dispara una sincronización.
 document.querySelector('#connChip').onclick = () => {
-  document.querySelector('.tab[data-view="history"]')?.click();
+  document.querySelector('.tab[data-view="config"]')?.click();
   withDriveToken(manualSync);
 };
 initDrive();

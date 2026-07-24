@@ -20,11 +20,15 @@
 .rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);opacity:.96;transition:none}
 .rest-grip{flex:none;width:12px;height:18px;background-image:radial-gradient(currentColor 1.3px,transparent 1.4px);background-size:6px 6px;color:var(--muted);opacity:.5}
 .rest-peek{display:none}
-.rest-info{display:flex;flex-direction:column;gap:2px}
+/* Toca el número para iniciar/pausar la cuenta */
+.rest-info{display:flex;flex-direction:column;gap:2px;cursor:pointer}
 .rest-info span{font:10px var(--mono);color:var(--muted);letter-spacing:.14em}
+.rest-info span::after{content:' ▶';color:var(--hot);letter-spacing:0}
+.rest-timer.is-running .rest-info span::after{content:' ❚❚'}
 /* Número protagonista: grande y con tipografía tabular para que no baile */
 .rest-info strong{font:800 46px var(--display);line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;transition:color .2s}
 .rest-timer.is-running .rest-info strong{color:var(--hot)}
+.rest-timer:not(.collapsed) .rest-info:hover strong{color:var(--hot)}
 .rest-timer.is-running{box-shadow:0 10px 34px rgba(0,0,0,.45),0 0 0 1px var(--hot)}
 /* Opciones sugeridas pequeñas: chips compactos que envuelven en 2 filas */
 .rest-actions{display:flex;flex-wrap:wrap;gap:5px;max-width:132px}
@@ -166,3 +170,25 @@ body.modal-open{overflow:hidden}
 .routine-date{display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:3px;background:var(--panel);color:var(--muted);font:10px var(--mono);letter-spacing:.06em}
 .routine-date input{border:0;background:transparent;color:var(--ink);font:12px var(--mono);outline:none;color-scheme:dark}
 @media(max-width:720px){.routine-date{width:100%;justify-content:space-between;height:44px}.routine-date input{font-size:16px}}
+
+/* === Pestaña de Ajustes (04) === */
+.config-group{margin-bottom:34px}
+.config-legend{margin:0 0 14px;color:var(--muted);font:10px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.config-legend.is-danger{color:var(--red)}
+.config-rows{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line)}
+.config-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 18px;background:var(--panel);flex-wrap:wrap}
+.config-row strong{display:block;font:700 12px var(--mono)}
+.config-row small{display:block;margin-top:4px;color:var(--muted);font:10px var(--mono);line-height:1.5}
+.config-value{color:var(--muted);font:12px var(--mono);text-align:right}
+.config-value.is-ok{color:var(--hot)}
+.config-value.is-warn{color:var(--red)}
+.config-control{flex:none}
+.seg{display:inline-flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.seg button{min-width:44px;min-height:38px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:700 11px var(--mono);cursor:pointer}
+.seg button:hover{border-color:var(--hot);color:var(--hot)}
+.seg button.is-active{border-color:var(--hot);color:var(--hot);background:color-mix(in srgb,var(--hot) 12%,transparent)}
+.danger-btn{border-color:var(--red);color:var(--red)}
+.danger-btn:hover{border-color:var(--red);color:#fff;background:var(--red)}
+.config-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.config-group .backup-card{margin:0 0 10px}
+@media(max-width:720px){.config-row{align-items:flex-start;flex-direction:column}.config-control,.seg{width:100%;justify-content:flex-start}.config-value{text-align:left}.config-stats{grid-template-columns:repeat(2,1fr)}}
