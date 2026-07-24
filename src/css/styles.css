@@ -152,9 +152,17 @@ body.modal-open{overflow:hidden}
 .summary-card .delta.neutral{color:var(--muted)}
 .summary-card.accent .delta{color:#465100}
 body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{color:#d0dfd2}
-.week-strip{display:flex;gap:5px;margin:10px 0 8px}
-.week-strip i{flex:1;height:8px;border-radius:2px;background:var(--line)}
-.week-strip i.on{background:var(--hot);box-shadow:0 0 8px color-mix(in srgb,var(--hot) 55%,transparent)}
+.week-cal{display:flex;gap:5px;margin:11px 0 8px}
+.week-cal .wd{flex:1;display:grid;place-items:center;height:24px;border:1px solid var(--line);border-radius:4px;color:var(--muted);font:700 10px var(--mono)}
+.week-cal .wd.on{background:var(--hot);border-color:var(--hot);color:#141414}
+.week-cal .wd.today{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.week-cal .wd.on.today{border-color:#141414;box-shadow:inset 0 0 0 1px #141414}
+.week-cal .wd.future{opacity:.38}
+.pr-note{margin:0 0 14px;color:var(--muted);font:10px/1.5 var(--mono)}
+/* 5 pestañas: permite desplazamiento horizontal en pantallas estrechas */
+.tabs{overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto}
 
 /* === Récords personales === */
 .pr-block{margin-bottom:22px}

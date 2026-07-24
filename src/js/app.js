@@ -46,7 +46,8 @@ function saveDraft() { if (restoring || !activeSession) return; localStorage.set
 function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
 const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d+'T12:00'));
 // Fecha local (no UTC): con toISOString por la noche saltaba al día siguiente.
-const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const keyOf = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const todayKey = () => keyOf(new Date());
 
 function makeSession() { return { id: crypto.randomUUID(), date: todayKey(), name: '', exercises: [] }; }
 function exerciseNames() { return [...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name.trim())).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
@@ -205,12 +206,14 @@ function strengthTrend() {
   const pct=base.e1rm>0 ? Math.round((last.e1rm-base.e1rm)/base.e1rm*100) : null;
   return {name:star.name, e1rm:last.e1rm, pct};
 }
-// Tira de los últimos 7 días naturales: marcado = entrenaste ese día.
+// Semana actual (lunes→domingo) con inicial del día, marcando hoy y futuros.
 function weekStrip() {
+  const letters=t('week.days').split(' ');
+  const today=new Date(), tKey=todayKey();
+  const monday=new Date(today); monday.setDate(today.getDate()-((today.getDay()+6)%7));
   const days=[];
-  for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i);
-    const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    days.push({key, trained:sessions.some(s=>s.date===key)}); }
+  for(let i=0;i<7;i++){ const d=new Date(monday); d.setDate(monday.getDate()+i); const key=keyOf(d);
+    days.push({ key, letter:letters[i]||'', trained:sessions.some(s=>s.date===key), isToday:key===tKey, future:key>tKey }); }
   return days;
 }
 // Racha: semanas consecutivas (lun-dom) con al menos un entrenamiento.
@@ -249,7 +252,8 @@ function renderSummary() {
     strengthCard.innerHTML=`<span>${t('summary.strength')} · ${escapeHtml(st.name)}</span><strong>${nf(st.e1rm)} <em>kg</em></strong>${delta}`;
   } else strengthCard.innerHTML=`<span>${t('summary.strength')}</span><strong>—</strong><small>${t('summary.noData')}</small>`;
   const strip=weekStrip(), trained=strip.filter(d=>d.trained).length;
-  $('#cardConsistency').innerHTML=`<span>${t('summary.consistency')}</span><strong>${trained}<em>/7</em></strong><div class="week-strip">${strip.map(d=>`<i class="${d.trained?'on':''}"></i>`).join('')}</div><small>${t('summary.streak',{n:weekStreak()})}</small>`;
+  const cal=strip.map(d=>`<span class="wd${d.trained?' on':''}${d.isToday?' today':''}${d.future?' future':''}">${d.letter}</span>`).join('');
+  $('#cardConsistency').innerHTML=`<span>${t('summary.consistency')}</span><strong>${trained}<em>/7</em></strong><div class="week-cal">${cal}</div><small>${t('summary.streak',{n:weekStreak()})}</small>`;
   const vd=volumeDelta();
   const loadDelta = vd.pct==null ? `<small>${t('summary.loadFirst')}</small>`
     : `<small class="delta neutral">${vd.pct>=0?'▲':'▼'} ${Math.abs(vd.pct)}% ${t('summary.vsPrev')}</small>`;
@@ -262,7 +266,7 @@ function renderPRs() {
   root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${r.set.weight}×${r.set.reps}</span><strong class="pr-e1rm">${Math.round(r.e1rm)} kg</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
 }
 function updateDashboard() {
-  renderSummary(); renderHistory(); populateProgress(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
+  renderSummary(); renderHistory(); populateProgress(); renderPRs(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
 }
 function renderHistory() {
   const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value); let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)); if(period){const d=new Date();d.setDate(d.getDate()-period);data=data.filter(s=>new Date(s.date+'T12:00')>=d)}
@@ -275,7 +279,7 @@ function editSession(id) {
   $$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.view==='session')); $$('.view').forEach(v=>v.classList.toggle('active',v.id==='sessionView'));
   $('#sessionView').scrollIntoView({behavior:'smooth'});
 }
-function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):`<option>${t('progress.noExercises')}</option>`; if(names.includes(current))sel.value=current; renderPRs(); renderProgress(); }
+function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):`<option>${t('progress.noExercises')}</option>`; if(names.includes(current))sel.value=current; renderProgress(); }
 // 1RM estimado (fórmula de Epley): peso × (1 + reps/30). Mide fuerza real
 // aunque cambies de repeticiones, mejor que la carga máxima a secas.
 const e1rm = s => (s.weight||0) * (1 + (s.reps||0)/30);
@@ -476,7 +480,7 @@ $('#clearSession').onclick=async ()=>{
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false; saveDraft();
 };
 $('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();}};
-$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='config')window.renderConfig?.();});
+$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='records')renderPRs();if(t.dataset.view==='config')window.renderConfig?.();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
 $('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
 $('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
