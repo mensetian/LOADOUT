@@ -193,7 +193,49 @@ function editSession(id) {
   $('#sessionView').scrollIntoView({behavior:'smooth'});
 }
 function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):`<option>${t('progress.noExercises')}</option>`; if(names.includes(current))sel.value=current; renderProgress(); }
-function renderProgress() { const name=$('#progressExercise').value; const records=sessions.sort((a,b)=>a.date.localeCompare(b.date)).flatMap(s=>s.exercises.filter(e=>e.name===name).map(e=>({date:s.date,sets:e.sets,max:Math.max(...e.sets.map(x=>x.weight)),volume:e.sets.reduce((t,x)=>t+x.weight*x.reps,0)}))); const root=$('#progressContent'); if(!records.length){root.innerHTML=`<p class="no-data">${t('progress.noData')}</p>`;return} const last=records.at(-1), first=records[0], diff=last.max-first.max; const bars=records.slice(-8), max=Math.max(...bars.map(r=>r.max),1); root.innerHTML=`<div class="progress-stats"><article class="progress-stat"><span>${t('progress.lastLoad')}</span><strong>${last.max} kg</strong></article><article class="progress-stat"><span>${t('progress.bestMark')}</span><strong>${Math.max(...records.map(r=>r.max))} kg</strong></article><article class="progress-stat"><span>${t('progress.totalChange')}</span><strong>${diff>=0?'+':''}${diff} kg</strong></article></div><article class="chart-card"><h3>${t('progress.chartTitle')}</h3><p>${t('progress.chartSub',{name:escapeHtml(name),n:bars.length})}</p><div class="bar-chart">${bars.map(r=>`<div class="bar-wrap"><span class="bar-value">${r.max}</span><div class="bar" style="height:${Math.max(8,r.max/max*115)}px"></div><span class="bar-label">${new Date(r.date+'T12:00').toLocaleDateString(dateLocale(),{day:'2-digit',month:'2-digit'})}</span></div>`).join('')}</div></article>`; }
+// 1RM estimado (fórmula de Epley): peso × (1 + reps/30). Mide fuerza real
+// aunque cambies de repeticiones, mejor que la carga máxima a secas.
+const e1rm = s => (s.weight||0) * (1 + (s.reps||0)/30);
+const PROGRESS_METRICS = ['e1rm','volume','max'];
+let progressMetric = 'e1rm';
+const metricValue = (r,m) => m==='e1rm' ? r.e1rm : m==='volume' ? r.volume : r.max;
+function renderProgress() {
+  const name=$('#progressExercise').value;
+  const records=[...sessions].sort((a,b)=>a.date.localeCompare(b.date))
+    .flatMap(s=>s.exercises.filter(e=>e.name===name).map(e=>{
+      const top=e.sets.reduce((b,x)=> e1rm(x) > (b?e1rm(b):-1) ? x : b, null);
+      return { date:s.date, max:Math.max(0,...e.sets.map(x=>x.weight)), volume:e.sets.reduce((t,x)=>t+x.weight*x.reps,0), e1rm:Math.max(0,...e.sets.map(e1rm)), top };
+    }));
+  const root=$('#progressContent');
+  if(!records.length){ root.innerHTML=`<p class="no-data">${t('progress.noData')}</p>`; return; }
+  const last=records.at(-1), first=records[0];
+  const bestE=Math.max(...records.map(r=>r.e1rm));
+  const bestRec=records.reduce((b,r)=> e1rm(r.top||{}) > e1rm(b.top||{}) ? r : b);
+  const diff=last.e1rm-first.e1rm, pct=first.e1rm>0 ? Math.round(diff/first.e1rm*100) : 0;
+  const bars=records.slice(-8), maxVal=Math.max(...bars.map(r=>metricValue(r,progressMetric)),1);
+  const fmt=v=> progressMetric==='max' ? Math.round(v*10)/10 : Math.round(v);
+  const recent=[...records].slice(-6).reverse();
+  const topLabel=r=> r.top ? `${r.top.weight}×${r.top.reps}` : '—';
+  root.innerHTML=`
+    <p class="progress-note">${t('progress.note')}</p>
+    <div class="progress-stats">
+      <article class="progress-stat"><span>${t('progress.e1rmNow')}</span><strong>${Math.round(last.e1rm)} kg</strong></article>
+      <article class="progress-stat"><span>${t('progress.e1rmBest')}</span><strong>${Math.round(bestE)} kg</strong></article>
+      <article class="progress-stat"><span>${t('progress.change')}</span><strong>${diff>=0?'+':''}${Math.round(diff)} kg · ${pct>=0?'+':''}${pct}%</strong></article>
+      <article class="progress-stat"><span>${t('progress.bestSet')}</span><strong>${topLabel(bestRec)}</strong></article>
+    </div>
+    <div class="metric-switch">${PROGRESS_METRICS.map(m=>`<button data-metric="${m}" class="${m===progressMetric?'is-active':''}">${t('progress.metric.'+m)}</button>`).join('')}</div>
+    <article class="chart-card">
+      <h3>${escapeHtml(name)}</h3>
+      <p>${t('progress.chartMetric',{metric:t('progress.metric.'+progressMetric), n:bars.length})}</p>
+      <div class="bar-chart">${bars.map(r=>{const v=metricValue(r,progressMetric);return `<div class="bar-wrap"><span class="bar-value">${fmt(v)}</span><div class="bar" style="height:${Math.max(8,v/maxVal*115)}px"></div><span class="bar-label">${new Date(r.date+'T12:00').toLocaleDateString(dateLocale(),{day:'2-digit',month:'2-digit'})}</span></div>`}).join('')}</div>
+    </article>
+    <div class="recent-table">
+      <div class="recent-row head"><span>${t('progress.col.date')}</span><span>${t('progress.col.top')}</span><span>${t('progress.col.e1rm')}</span><span class="col-vol">${t('progress.col.volume')}</span></div>
+      ${recent.map(r=>`<div class="recent-row"><span>${dateFmt(r.date)}</span><span>${topLabel(r)}</span><strong>${Math.round(r.e1rm)}</strong><span class="col-vol">${Math.round(r.volume)}</span></div>`).join('')}
+    </div>`;
+  $$('.metric-switch button').forEach(b=>b.onclick=()=>{ progressMetric=b.dataset.metric; renderProgress(); });
+}
 // --- Temporizador de descanso ---
 let restInterval=null, restEnds=0, restDuration=90;
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}

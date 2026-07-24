@@ -124,6 +124,21 @@ body.modal-open{overflow:hidden}
 /* === Selector de idioma === */
 .lang-btn{font:800 11px var(--mono);letter-spacing:.04em}
 
+/* === Métricas: switch de indicador y tabla reciente === */
+.progress-stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.progress-stat strong{font-size:20px}
+.progress-note{margin:0 0 14px;color:var(--muted);font:10px/1.55 var(--mono)}
+.metric-switch{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.metric-switch button{padding:9px 13px;min-height:38px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:700 10px var(--mono);letter-spacing:.04em;cursor:pointer}
+.metric-switch button.is-active{border-color:var(--hot);color:var(--hot);background:color-mix(in srgb,var(--hot) 12%,transparent)}
+.recent-table{margin-top:13px;border:1px solid var(--line);background:var(--panel)}
+.recent-row{display:grid;grid-template-columns:1fr 1fr .8fr .8fr;gap:8px;align-items:baseline;padding:11px 14px;border-bottom:1px solid var(--line);font:11px var(--mono)}
+.recent-row:last-child{border-bottom:0}
+.recent-row>*:not(:first-child){text-align:right}
+.recent-row strong{color:var(--hot);font-weight:500}
+.recent-row.head{color:var(--muted);font-size:9px;letter-spacing:.05em;text-transform:uppercase}
+@media(max-width:410px){.recent-row{grid-template-columns:1fr 1fr .8fr}.recent-row .col-vol{display:none}}
+
 /* === Movimiento colapsable / terminado === */
 .collapse-exercise{width:36px;height:36px;border-radius:var(--radius-sm);background:var(--panel2);border:0;color:var(--muted);font-size:15px;cursor:pointer}
 .collapse-exercise:hover{color:var(--hot)}
