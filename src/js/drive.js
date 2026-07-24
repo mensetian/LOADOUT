@@ -78,15 +78,10 @@ function initDrive() {
         if (action) action(); else setDriveStatus(t('drive.connected'), 'is-ok');
       },
     });
-    // Si ya autorizaste antes en este dispositivo, intenta reconectar sin popup.
-    if (localStorage.getItem(DRIVE_LINKED_KEY)) {
-      driveSilent = true;
-      drivePendingAction = () => driveSync({ silent: true, retry: silentSync });
-      setDriveStatus(t('drive.reconnecting'), 'busy');
-      driveTokenClient.requestAccessToken({ prompt: '' });
-    } else {
-      setDriveStatus(t('drive.notConnected'));
-    }
+    // Sin servidor no hay refresh token, así que reconectar en el arranque abría
+    // el popup de Google en cada recarga (molesto). Mejor esperar a que el
+    // usuario toque el chip / Sincronizar para pedir el token.
+    setDriveStatus(t('drive.notConnected'));
   };
   script.onerror = () => setDriveStatus(t('drive.offline'), 'is-warn');
   document.head.append(script);

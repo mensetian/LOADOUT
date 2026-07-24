@@ -125,8 +125,12 @@ function addSet(card, values = {}) {
 function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textContent=`${String(i+1).padStart(2,'0')}`); }
 // Resumen compacto que se muestra cuando el movimiento está colapsado/terminado.
 function exerciseSummaryText(card) {
-  const sets=$$('.set-row',card).map(r=>({w:$('.set-weight',r).value,reps:$('.set-reps',r).value})).filter(s=>s.w||s.reps);
-  return sets.length ? sets.map(s=>`${s.w||0}×${s.reps||0}`).join(' · ') : t('exercise.noSets');
+  // Usa el valor tecleado; si está vacío, cae al objetivo (placeholder) de la rutina.
+  const sets=$$('.set-row',card).map(r=>{
+    const w=$('.set-weight',r), reps=$('.set-reps',r);
+    return { w:w.value||parseFloat(w.placeholder)||0, reps:reps.value||parseFloat(reps.placeholder)||0 };
+  }).filter(s=>s.w||s.reps);
+  return sets.length ? sets.map(s=>`${s.w}×${s.reps}`).join(' · ') : t('exercise.noSets');
 }
 function setCollapsed(card, collapsed) {
   card.classList.toggle('is-collapsed', collapsed);
@@ -194,13 +198,14 @@ function renderProgress() { const name=$('#progressExercise').value; const recor
 let restInterval=null, restEnds=0, restDuration=90;
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
-  restDuration=seconds; restEnds=Date.now()+seconds*1000; $('#restTimer').hidden=false; document.body.classList.add('rest-active'); clearInterval(restInterval);
-  $('#restToggle').classList.add('is-on'); $('#restToggle').title=t('rest.running');
+  restDuration=seconds; restEnds=Date.now()+seconds*1000; clearInterval(restInterval);
+  $('#restTimer').classList.add('is-running'); $('#restToggle').classList.add('is-on'); $('#restToggle').title=t('rest.running');
   const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); $('#restDisplay').textContent=fmtRest(left);
     if(left<=0){stopRest(); beep(); if(navigator.vibrate)navigator.vibrate([200,100,200]);}};
   tick(); restInterval=setInterval(tick,250);
 }
-function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').hidden=true;document.body.classList.remove('rest-active');$('#restToggle').classList.remove('is-on');$('#restToggle').title=t('rest.start');}
+// El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
+function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');$('#restToggle').classList.remove('is-on');$('#restToggle').title=t('rest.start');$('#restDisplay').textContent=fmtRest(restDuration);}
 function beep(){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 $('#restToggle').onclick=()=>{ restInterval?stopRest():startRest(); };
 $('#exerciseList').addEventListener('change',e=>{if(e.target.matches('.set-reps')&&e.target.value)startRest();});
@@ -284,7 +289,8 @@ $('#loadRoutine').onclick=async ()=>{
   if(!prev){ await showAlert(t('routine.loadNeedName')); return; }
   if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')})))return;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
-  prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  // Se cargan colapsados: solo trabajas uno a la vez, lo abres cuando te toca.
+  prev.exercises.forEach(e=>addExercise({name:e.name, done:true, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
   if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
   saveDraft();
 };
