@@ -16,8 +16,10 @@
 .edit-session{white-space:nowrap}
 
 /* Temporizador de descanso */
-.rest-timer{position:fixed;left:clamp(16px,4vw,32px);bottom:18px;z-index:60;display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--hot);border-radius:var(--radius);background:var(--panel);box-shadow:0 10px 34px rgba(0,0,0,.45);touch-action:none;cursor:grab;user-select:none;transition:left .24s cubic-bezier(.22,1,.36,1),top .24s cubic-bezier(.22,1,.36,1),border-radius .2s ease,box-shadow .2s ease}
+.rest-timer{position:fixed;left:clamp(16px,4vw,32px);bottom:18px;z-index:60;display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--hot);border-radius:var(--radius);background:var(--panel);box-shadow:0 10px 34px rgba(0,0,0,.45);touch-action:none;cursor:grab;user-select:none;transition:left .24s cubic-bezier(.22,1,.36,1),right .24s cubic-bezier(.22,1,.36,1),top .24s cubic-bezier(.22,1,.36,1),border-radius .2s ease,box-shadow .2s ease}
 .rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);opacity:.96;transition:none}
+/* Ancho fijo al contenido: evita que se comprima al arrastrarlo contra un borde */
+.rest-timer:not(.collapsed){width:max-content;flex-shrink:0}
 .rest-grip{flex:none;width:12px;height:18px;background-image:radial-gradient(currentColor 1.3px,transparent 1.4px);background-size:6px 6px;color:var(--muted);opacity:.5}
 .rest-peek{display:none}
 /* Toca el número para iniciar/pausar la cuenta */
@@ -26,7 +28,7 @@
 .rest-info span::after{content:' ▶';color:var(--hot);letter-spacing:0}
 .rest-timer.is-running .rest-info span::after{content:' ❚❚'}
 /* Número protagonista: grande y con tipografía tabular para que no baile */
-.rest-info strong{font:800 46px var(--display);line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;transition:color .2s}
+.rest-info strong{font:800 46px var(--display);line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;transition:color .2s}
 .rest-timer.is-running .rest-info strong{color:var(--hot)}
 .rest-timer:not(.collapsed) .rest-info:hover strong{color:var(--hot)}
 .rest-timer.is-running{box-shadow:0 10px 34px rgba(0,0,0,.45),0 0 0 1px var(--hot)}
@@ -139,6 +141,32 @@ body.modal-open{overflow:hidden}
 
 /* === Selector de idioma === */
 .lang-btn{font:800 11px var(--mono);letter-spacing:.04em}
+
+/* === Barra de indicadores rediseñada (fuerza / constancia / carga) === */
+.summary-card{display:flex;flex-direction:column}
+.summary-card strong em{font-style:normal;font-size:.42em;color:var(--muted);letter-spacing:0}
+.summary-card.accent strong em{color:#465100}
+.summary-card .delta{display:inline-flex;align-items:center;gap:4px;font:10px var(--mono)}
+.summary-card .delta.up{color:#7dd35b}
+.summary-card .delta.down{color:var(--red)}
+.summary-card .delta.neutral{color:var(--muted)}
+.summary-card.accent .delta{color:#465100}
+body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{color:#d0dfd2}
+.week-strip{display:flex;gap:5px;margin:10px 0 8px}
+.week-strip i{flex:1;height:8px;border-radius:2px;background:var(--line)}
+.week-strip i.on{background:var(--hot);box-shadow:0 0 8px color-mix(in srgb,var(--hot) 55%,transparent)}
+
+/* === Récords personales === */
+.pr-block{margin-bottom:22px}
+.pr-title{margin:0 0 11px;font:600 16px var(--display);letter-spacing:.04em;text-transform:uppercase;color:var(--hot)}
+.pr-list{border:1px solid var(--line);background:var(--panel)}
+.pr-row{display:grid;grid-template-columns:1.4fr .8fr .8fr .9fr;gap:8px;align-items:baseline;padding:11px 14px;border-bottom:1px solid var(--line);font:11px var(--mono)}
+.pr-row:last-child{border-bottom:0}
+.pr-row>*:not(.pr-name){text-align:right}
+.pr-name{overflow:hidden;font:600 13px var(--display);letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;text-overflow:ellipsis}
+.pr-e1rm{color:var(--hot);font-weight:500}
+.pr-date{color:var(--muted)}
+@media(max-width:410px){.pr-row{grid-template-columns:1.3fr .8fr .9fr}.pr-row .pr-set{display:none}}
 
 /* === Métricas: switch de indicador y tabla reciente === */
 .progress-stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}

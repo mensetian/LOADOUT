@@ -177,9 +177,92 @@ async function finishSession() {
   const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
   await showAlert(prs.length?t('session.pr',{list:prs.join('\n')}):t('session.saved'));
 }
+// --- Analítica para la barra de indicadores y récords ----------------------
+const daysAgo = key => Math.round((new Date(todayKey()+'T12:00')-new Date(key+'T12:00'))/86400000);
+const mondayKey = d => { const x=new Date(d); x.setDate(x.getDate()-((x.getDay()+6)%7)); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
+// Movimiento estrella: el que aparece en más sesiones (conserva su forma original).
+function starLift() {
+  const freq=new Map(), label=new Map();
+  sessions.forEach(s=>{ new Set(s.exercises.map(e=>e.name.trim().toLowerCase()).filter(Boolean)).forEach(k=>freq.set(k,(freq.get(k)||0)+1));
+    s.exercises.forEach(e=>{ const k=e.name.trim().toLowerCase(); if(k&&!label.has(k)) label.set(k,e.name.trim()); }); });
+  let key=null,c=0; freq.forEach((v,k)=>{ if(v>c){c=v;key=k;} });
+  return key ? {key, name:label.get(key)} : null;
+}
+function exerciseRecords(key) {
+  return [...sessions].sort((a,b)=>a.date.localeCompare(b.date))
+    .flatMap(s=>s.exercises.filter(e=>e.name.trim().toLowerCase()===key).map(e=>({date:s.date, e1rm:Math.max(0,...e.sets.map(e1rm))})))
+    .filter(r=>r.e1rm>0);
+}
+// Tendencia de fuerza del movimiento estrella: e1RM actual vs ~30 días antes.
+function strengthTrend() {
+  const star=starLift(); if(!star) return null;
+  const recs=exerciseRecords(star.key); if(!recs.length) return null;
+  const last=recs.at(-1);
+  if(recs.length<2) return {name:star.name, e1rm:last.e1rm, pct:null};
+  const targetTime=new Date(last.date+'T12:00').getTime()-30*86400000;
+  let base=recs[0];
+  for(const r of recs){ if(new Date(r.date+'T12:00').getTime()<=targetTime) base=r; }
+  const pct=base.e1rm>0 ? Math.round((last.e1rm-base.e1rm)/base.e1rm*100) : null;
+  return {name:star.name, e1rm:last.e1rm, pct};
+}
+// Tira de los últimos 7 días naturales: marcado = entrenaste ese día.
+function weekStrip() {
+  const days=[];
+  for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i);
+    const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    days.push({key, trained:sessions.some(s=>s.date===key)}); }
+  return days;
+}
+// Racha: semanas consecutivas (lun-dom) con al menos un entrenamiento.
+function weekStreak() {
+  const weeks=new Set(sessions.map(s=>mondayKey(new Date(s.date+'T12:00'))));
+  let streak=0; const cur=new Date();
+  while(weeks.has(mondayKey(cur))){ streak++; cur.setDate(cur.getDate()-7); }
+  return streak;
+}
+// Tonelaje de los últimos 7 días y variación vs los 7 días previos.
+function volumeDelta() {
+  const vol=list=>list.flatMap(s=>s.exercises.flatMap(e=>e.sets)).reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0);
+  const cur=sessions.filter(s=>{const d=daysAgo(s.date); return d>=0&&d<=6;});
+  const prev=sessions.filter(s=>{const d=daysAgo(s.date); return d>=7&&d<=13;});
+  const c=vol(cur), p=vol(prev);
+  return {current:c, pct:p>0 ? Math.round((c-p)/p*100) : null};
+}
+// Mejor e1RM histórico por movimiento (récord personal), con la serie que lo logró.
+function personalRecords() {
+  const map=new Map();
+  [...sessions].sort((a,b)=>a.date.localeCompare(b.date)).forEach(s=>{
+    s.exercises.forEach(e=>{ const key=e.name.trim().toLowerCase(); if(!key) return;
+      const best=e.sets.reduce((b,x)=> e1rm(x)>(b?e1rm(b):-1) ? x : b, null);
+      if(!best || !e1rm(best)) return;
+      const cur=map.get(key);
+      if(!cur || e1rm(best)>cur.e1rm) map.set(key,{name:e.name.trim(), set:best, e1rm:e1rm(best), date:s.date}); });
+  });
+  return [...map.values()].sort((a,b)=> b.date.localeCompare(a.date) || b.e1rm-a.e1rm);
+}
+function renderSummary() {
+  const nf=n=>Math.round(n).toLocaleString(dateLocale());
+  const st=strengthTrend(), strengthCard=$('#cardStrength');
+  if(st){
+    const delta = st.pct==null ? `<small>${t('summary.strengthBase')}</small>`
+      : `<small class="delta ${st.pct>=0?'up':'down'}">${st.pct>=0?'▲':'▼'} ${Math.abs(st.pct)}% · 30D</small>`;
+    strengthCard.innerHTML=`<span>${t('summary.strength')} · ${escapeHtml(st.name)}</span><strong>${nf(st.e1rm)} <em>kg</em></strong>${delta}`;
+  } else strengthCard.innerHTML=`<span>${t('summary.strength')}</span><strong>—</strong><small>${t('summary.noData')}</small>`;
+  const strip=weekStrip(), trained=strip.filter(d=>d.trained).length;
+  $('#cardConsistency').innerHTML=`<span>${t('summary.consistency')}</span><strong>${trained}<em>/7</em></strong><div class="week-strip">${strip.map(d=>`<i class="${d.trained?'on':''}"></i>`).join('')}</div><small>${t('summary.streak',{n:weekStreak()})}</small>`;
+  const vd=volumeDelta();
+  const loadDelta = vd.pct==null ? `<small>${t('summary.loadFirst')}</small>`
+    : `<small class="delta neutral">${vd.pct>=0?'▲':'▼'} ${Math.abs(vd.pct)}% ${t('summary.vsPrev')}</small>`;
+  $('#cardLoad').innerHTML=`<span>${t('summary.load')}</span><strong>${nf(vd.current)} <em>kg</em></strong>${loadDelta}`;
+}
+function renderPRs() {
+  const root=$('#prList'); if(!root) return;
+  const prs=personalRecords();
+  if(!prs.length){ root.innerHTML=`<p class="no-data">${t('pr.none')}</p>`; return; }
+  root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${r.set.weight}×${r.set.reps}</span><strong class="pr-e1rm">${Math.round(r.e1rm)} kg</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
+}
 function updateDashboard() {
-  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-6); const recent=sessions.filter(s=>new Date(s.date+'T12:00')>=cutoff); const sets=recent.flatMap(s=>s.exercises.flatMap(e=>e.sets));
-  $('#weekSessions').textContent=recent.length; $('#weekSets').textContent=sets.length; $('#weekVolume').textContent=Math.round(sets.reduce((t,s)=>t+s.weight*s.reps,0)).toLocaleString(dateLocale()); renderHistory(); populateProgress(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
+  renderSummary(); renderHistory(); populateProgress(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
 }
 function renderHistory() {
   const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value); let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)); if(period){const d=new Date();d.setDate(d.getDate()-period);data=data.filter(s=>new Date(s.date+'T12:00')>=d)}
@@ -192,7 +275,7 @@ function editSession(id) {
   $$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.view==='session')); $$('.view').forEach(v=>v.classList.toggle('active',v.id==='sessionView'));
   $('#sessionView').scrollIntoView({behavior:'smooth'});
 }
-function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):`<option>${t('progress.noExercises')}</option>`; if(names.includes(current))sel.value=current; renderProgress(); }
+function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):`<option>${t('progress.noExercises')}</option>`; if(names.includes(current))sel.value=current; renderPRs(); renderProgress(); }
 // 1RM estimado (fórmula de Epley): peso × (1 + reps/30). Mide fuerza real
 // aunque cambies de repeticiones, mejor que la carga máxima a secas.
 const e1rm = s => (s.weight||0) * (1 + (s.reps||0)/30);
@@ -253,75 +336,90 @@ $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset
 $('#restStop').onclick=stopRest;
 $('#restDisplay').textContent=fmtRest(restDuration);
 
-// --- Posición del contador: arrastrar, deslizar a un borde y recordar el estado ---
+// --- Posición del contador: se ancla a un lado con el botón; deslizable solo en vertical ---
 const REST_POS_KEY='loadout-rest-pos';
 function readRestState(){ try{ return JSON.parse(localStorage.getItem(REST_POS_KEY))||{}; }catch{ return {}; } }
 function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s)); }
+// Lado con más espacio libre respecto al contenido (el que menos cruza la info).
+function bestSide(){
+  const shell=$('.app-shell'); const r=shell?shell.getBoundingClientRect():{left:0,right:window.innerWidth};
+  return (window.innerWidth-r.right) > (r.left+8) ? 'right' : 'left';
+}
+function setFoldArrow(side){ $('#restFold').textContent = side==='right' ? '›' : '‹'; }
 function clampRestPos(left,top){
-  const el=$('#restTimer'), pad=8; const w=el.offsetWidth||220, h=el.offsetHeight||70;
-  const maxLeft=window.innerWidth-w-pad, maxTop=window.innerHeight-h-pad;
-  return {left:Math.min(Math.max(pad,left),Math.max(pad,maxLeft)), top:Math.min(Math.max(pad,top),Math.max(pad,maxTop))};
+  const el=$('#restTimer'), pad=8, w=el.offsetWidth||220, h=el.offsetHeight||70;
+  const maxL=window.innerWidth-w-pad, maxT=window.innerHeight-h-pad;
+  return {left:Math.min(Math.max(pad,left),Math.max(pad,maxL)), top:Math.min(Math.max(pad,top),Math.max(pad,maxT))};
 }
-function placeExpanded(left,top){
+// Desplegado: se puede mover libremente y recuerda su posición. La flecha del
+// botón marca a qué lado (el de menos cruce) se plegará al pulsarlo.
+function applyExpanded(pos){
   const el=$('#restTimer');
   el.classList.remove('collapsed','collapsed-left','collapsed-right');
-  const pos=clampRestPos(left,top);
-  el.style.left=pos.left+'px'; el.style.top=pos.top+'px'; el.style.right='auto'; el.style.bottom='auto';
-  return pos;
+  setFoldArrow(bestSide());
+  const st=readRestState();
+  const p = pos || (Number.isFinite(st.left)&&Number.isFinite(st.top) ? {left:st.left,top:st.top} : null);
+  if(p){ const c=clampRestPos(p.left,p.top); el.style.left=c.left+'px'; el.style.top=c.top+'px'; el.style.right='auto'; el.style.bottom='auto'; return c; }
+  // Sin posición guardada: esquina inferior del lado con menos cruce.
+  const side=bestSide(); el.style.top='auto'; el.style.bottom='18px';
+  if(side==='right'){ el.style.right='clamp(12px,4vw,32px)'; el.style.left='auto'; }
+  else { el.style.left='clamp(12px,4vw,32px)'; el.style.right='auto'; }
+  return null;
 }
-// Colapsa el contador contra un borde dejando solo una pestaña visible.
-function collapseRest(side){
+// Colapsado: pestaña pegada al borde; la posición vertical (top) es ajustable.
+function applyCollapsed(side,top){
   const el=$('#restTimer');
-  const cur=parseFloat(el.style.top); const curTop=Number.isFinite(cur)?cur:el.getBoundingClientRect().top;
   el.classList.add('collapsed'); el.classList.remove('collapsed-left','collapsed-right'); el.classList.add('collapsed-'+side);
-  el.style.right='auto'; el.style.bottom='auto';
+  el.style.bottom='auto';
+  if(side==='right'){ el.style.right='0px'; el.style.left='auto'; }
+  else { el.style.left='0px'; el.style.right='auto'; }
   const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad;
-  const top=Math.min(Math.max(pad,curTop),Math.max(pad,maxTop));
-  const left=side==='left' ? 0 : window.innerWidth-el.offsetWidth;
-  el.style.left=left+'px'; el.style.top=top+'px';
-  saveRestState({collapsed:true, side, top});
+  const wanted=Number.isFinite(top)?top:el.getBoundingClientRect().top;
+  const clTop=Math.min(Math.max(pad,wanted),Math.max(pad,maxTop));
+  el.style.top=clTop+'px';
+  return clTop;
 }
-function expandRest(){
-  const el=$('#restTimer'); const st=readRestState();
-  const top=el.getBoundingClientRect().top;
-  el.classList.remove('collapsed','collapsed-left','collapsed-right');
-  el.style.left='0px'; el.style.right='auto'; el.style.bottom='auto'; el.style.top=top+'px';
-  const left=st.side==='right' ? window.innerWidth-el.offsetWidth-12 : 12;
-  const pos=placeExpanded(left,top);
-  saveRestState({collapsed:false, side:st.side, left:pos.left, top:pos.top});
-}
+function expandRest(){ const st=readRestState(); applyExpanded(); saveRestState({...st, collapsed:false}); }
 (function initRest(){
   const el=$('#restTimer');
   const st=readRestState();
-  if(st.collapsed){ if(Number.isFinite(st.top)){ el.style.top=st.top+'px'; el.style.bottom='auto'; } collapseRest(st.side||'left'); }
-  else if(Number.isFinite(st.left)) placeExpanded(st.left,st.top);
-  let dragging=false, offX=0, offY=0, sx=0, sy=0, moved=false, lastX=0, downOnNumber=false;
+  if(st.collapsed) applyCollapsed(st.side||bestSide(), st.cTop); else applyExpanded();
+
+  // Botón: pliega hacia el lado con menos cruce (el que marca la flecha).
+  $('#restFold').onclick=e=>{ e.stopPropagation(); const side=bestSide(); const cTop=applyCollapsed(side, el.getBoundingClientRect().top); const s=readRestState(); saveRestState({...s, collapsed:true, side, cTop}); };
+
+  // Desplegado: se mueve libremente (y se recuerda); un toque en el número = play/pausa.
+  // Anclado: se desliza solo en vertical; un toque lo despliega.
+  let dragging=false, mode=null, offX=0, offY=0, sx=0, sy=0, startTop=0, moved=false, downOnNumber=false;
   el.addEventListener('pointerdown',e=>{
-    if(el.classList.contains('collapsed')) return;   // colapsado: un toque lo despliega
-    if(e.target.closest('button')) return;           // desplegado: los botones funcionan normal
-    downOnNumber=!!e.target.closest('.rest-info');   // toque sobre el número = play/pausa
-    dragging=true; moved=false; sx=e.clientX; sy=e.clientY; lastX=e.clientX; el.setPointerCapture(e.pointerId);
-    const rect=el.getBoundingClientRect(); offX=e.clientX-rect.left; offY=e.clientY-rect.top;
+    if(e.target.closest('button')) return;                 // botones (presets/stop/fold) funcionan normal
+    const collapsed=el.classList.contains('collapsed');
+    dragging=true; moved=false; sx=e.clientX; sy=e.clientY; el.setPointerCapture(e.pointerId);
+    if(collapsed){ mode='v'; startTop=parseFloat(el.style.top)||el.getBoundingClientRect().top; }
+    else { mode='free'; downOnNumber=!!e.target.closest('.rest-info'); const r=el.getBoundingClientRect(); offX=e.clientX-r.left; offY=e.clientY-r.top; }
     el.classList.add('dragging');
   });
   el.addEventListener('pointermove',e=>{
-    if(!dragging)return; lastX=e.clientX;
+    if(!dragging)return;
     if(Math.hypot(e.clientX-sx,e.clientY-sy)>6) moved=true;
-    if(moved) placeExpanded(e.clientX-offX,e.clientY-offY);
+    if(!moved)return;
+    if(mode==='v'){ const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad; el.style.top=Math.min(Math.max(pad,startTop+(e.clientY-sy)),Math.max(pad,maxTop))+'px'; }
+    else { const c=clampRestPos(e.clientX-offX,e.clientY-offY); el.style.left=c.left+'px'; el.style.top=c.top+'px'; el.style.right='auto'; el.style.bottom='auto'; }
   });
-  const endDrag=e=>{
+  const endPointer=()=>{
     if(!dragging)return; dragging=false; el.classList.remove('dragging');
-    // Un toque sin arrastrar sobre el número inicia o detiene la cuenta.
-    if(!moved){ if(downOnNumber) restInterval?stopRest():startRest(); return; }
-    const x=Number.isFinite(e.clientX)?e.clientX:lastX, edge=70;
-    if(x<edge) collapseRest('left');
-    else if(x>window.innerWidth-edge) collapseRest('right');
-    else { const rect=el.getBoundingClientRect(); const pos=placeExpanded(rect.left,rect.top); saveRestState({collapsed:false, side:pos.left<window.innerWidth/2?'left':'right', left:pos.left, top:pos.top}); }
+    if(mode==='v'){
+      if(moved){ const s=readRestState(); saveRestState({...s, collapsed:true, cTop:parseFloat(el.style.top)}); }
+      else expandRest();                                   // toque en la pestaña anclada
+    } else {
+      if(!moved){ if(downOnNumber) restInterval?stopRest():startRest(); }
+      else { const r=el.getBoundingClientRect(); const c=clampRestPos(r.left,r.top); const s=readRestState(); saveRestState({...s, collapsed:false, left:c.left, top:c.top}); }
+    }
+    downOnNumber=false;
   };
-  el.addEventListener('pointerup',endDrag); el.addEventListener('pointercancel',endDrag);
-  el.addEventListener('click',()=>{ if(el.classList.contains('collapsed')) expandRest(); });
-  $('#restFold').onclick=e=>{ e.stopPropagation(); const rect=el.getBoundingClientRect(); collapseRest(rect.left+rect.width/2<window.innerWidth/2?'left':'right'); };
-  window.addEventListener('resize',()=>{ const s=readRestState(); if(s.collapsed) collapseRest(s.side||'left'); else if(Number.isFinite(s.left)) placeExpanded(s.left,s.top); });
+  el.addEventListener('pointerup',endPointer); el.addEventListener('pointercancel',endPointer);
+
+  window.addEventListener('resize',()=>{ const s=readRestState(); if(s.collapsed) applyCollapsed(s.side||bestSide(), s.cTop); else applyExpanded(); });
 })();
 
 // --- Bienvenida (hero) solo la primera vez ---
