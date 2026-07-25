@@ -1,5 +1,7 @@
 # Roadmap
 
+> Meta de publicación (Play Store, donaciones, divulgación): **[PLAN.md](PLAN.md)**.
+
 ## Hecho
 
 - ✅ **Nombres de rutina** — cada sesión se etiqueta (Pecho, Espalda y bíceps, Pierna…) con autocompletado.
@@ -12,18 +14,22 @@
 - ✅ **Respaldo en capas** — almacenamiento persistente, copias locales (Deshacer) y aviso de antigüedad.
 - ✅ **Sincronización con Google Drive** — opcional, sin cuenta propia, con fusión por id de sesión.
 
+- ✅ **Plantillas de rutina** — planes fijos (día A/B/C) independientes del historial, con sección propia
+  en el selector de rutina y gestión en Ajustes. Viajan en respaldos y se fusionan por id en Drive.
+- ✅ **Unidades kg/lb** — el historial se guarda siempre en kilos; la unidad solo afecta a lo que se ve.
+- ✅ **Onboarding del primer uso** — los tres pasos y una rutina de ejemplo cargable de un tap.
+- ✅ **Tests** — `tests/index.html`, sin framework ni build.
+
 ## Siguiente
 
-- **Plantillas de rutina** — definir rutinas fijas (día A/B/C) independientes de las sesiones.
 - **Duplicar sesión** desde el historial con un tap.
 - **Notas por ejercicio/sesión** (sensaciones, técnica, dolor).
+- **Calendario/heatmap** de asistencia estilo GitHub.
 
 ## Más adelante
 
 - **RPE / RIR** por serie para gestionar intensidad.
 - **Gráficos de volumen semanal** por grupo muscular.
-- **Calendario/heatmap** de asistencia estilo GitHub.
-- **Unidades lb/kg** configurables.
 
 ## Deuda técnica
 

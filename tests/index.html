@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>LOADOUT · tests</title>
+<style>
+  body{margin:0;padding:28px;background:#121212;color:#f6f5f1;font:14px/1.5 ui-monospace,'DM Mono',monospace}
+  h1{margin:0 0 4px;font-size:19px;letter-spacing:.04em}
+  p.sub{margin:0 0 22px;color:#8d9295;font-size:12px}
+  #summary{margin:0 0 18px;padding:12px 15px;border-left:3px solid #8d9295;background:#1a1b1d;font-size:13px}
+  #summary.pass{border-left-color:#e7ff37}
+  #summary.fail{border-left-color:#ff5e4e}
+  ul{margin:0;padding:0;list-style:none}
+  li{padding:7px 12px;border-bottom:1px solid #303235;font-size:12px}
+  li.ok::before{content:'PASS ';color:#e7ff37}
+  li.no::before{content:'FAIL ';color:#ff5e4e}
+  li .why{display:block;margin-top:3px;color:#ff5e4e}
+  .group{margin:20px 0 6px;color:#8d9295;font-size:11px;letter-spacing:.12em}
+  iframe{position:absolute;width:1024px;height:768px;left:-9999px;top:0;border:0}
+</style>
+</head>
+<body>
+<h1>LOADOUT · tests</h1>
+<p class="sub">Comprueban lo que, si se rompe, destruye datos o confianza: la fusión con Drive, la detección de récords, la conversión de unidades y el ciclo exportar → importar. Se ejecutan contra el código real, cargado en un iframe.</p>
+<div id="summary">Cargando la app…</div>
+<ul id="results"></ul>
+<iframe id="app" src="../index.html" title="app bajo prueba"></iframe>
+<script src="tests.js"></script>
+</body>
+</html>

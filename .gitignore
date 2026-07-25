@@ -9,6 +9,10 @@ desktop.ini
 *.swp
 
 # Dependencias / build (por si más adelante se añade tooling)
+# `npm install playwright-core` es opcional, solo para tests/run.js: se queda
+# fuera de git para que el repo siga sin dependencias ni build.
+package.json
+package-lock.json
 node_modules/
 dist/
 .cache/

@@ -15,22 +15,30 @@
 .history-move small{color:var(--muted);font:10px var(--mono);text-align:right}
 .edit-session{white-space:nowrap}
 
-/* Temporizador de descanso: cajón anclado siempre a un borde lateral */
-.rest-timer{position:fixed;top:50%;z-index:60;display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--hot);background:var(--panel);box-shadow:0 10px 34px rgba(0,0,0,.45);touch-action:none;cursor:grab;user-select:none;transition:transform .26s cubic-bezier(.22,1,.36,1),top .2s cubic-bezier(.22,1,.36,1),border-radius .2s ease,box-shadow .2s ease,padding .2s ease}
+/* Temporizador de descanso: un cajón anclado a un borde lateral.
+   Es UNA sola pieza: el tirador (contador en miniatura) y el cuerpo van juntos.
+   Plegarlo es deslizar la pieza entera hasta que solo asoma el tirador. */
+.rest-timer{position:fixed;top:50%;z-index:60;display:flex;align-items:stretch;width:max-content;border:1px solid var(--hot);background:var(--panel);box-shadow:0 10px 34px rgba(0,0,0,.45);touch-action:none;user-select:none;cursor:grab;--handle:36px;transition:transform .26s cubic-bezier(.22,1,.36,1),box-shadow .2s ease}
 /* Anclaje lateral: el borde pegado a la pantalla pierde el redondeo */
 .rest-timer.side-right{right:0;left:auto;border-radius:var(--radius) 0 0 var(--radius);border-right-color:transparent}
 .rest-timer.side-left{left:0;right:auto;border-radius:0 var(--radius) var(--radius) 0;border-left-color:transparent}
-/* En el borde derecho la manija queda en el canto interior (como el tirador de un cajón) */
-.rest-timer.side-right .rest-fold{order:-1}
-.rest-timer.side-right .rest-grip{order:9}
-/* Estado inicial del deslizamiento: fuera de pantalla, hacia su propio lado */
-.rest-timer.slide-hidden.side-right{transform:translateX(100%)}
-.rest-timer.slide-hidden.side-left{transform:translateX(-100%)}
-.rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);opacity:.96;transition:none}
-/* Ancho fijo al contenido: evita que se comprima al arrastrarlo contra un borde */
-.rest-timer:not(.collapsed){width:max-content;flex-shrink:0}
-.rest-grip{flex:none;width:12px;height:18px;background-image:radial-gradient(currentColor 1.3px,transparent 1.4px);background-size:6px 6px;color:var(--muted);opacity:.5}
-.rest-peek{display:none}
+/* El tirador siempre mira al interior de la pantalla: es lo único que queda a la vista */
+.rest-timer.side-right .rest-handle{order:-1}
+.rest-timer.side-right.is-collapsed{transform:translateX(calc(100% - var(--handle)))}
+.rest-timer.side-left.is-collapsed{transform:translateX(calc(var(--handle) - 100%))}
+.rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);transition:none}
+.rest-timer.is-running{box-shadow:0 10px 34px rgba(0,0,0,.45),0 0 0 1px var(--hot)}
+/* Tirador: el mismo contador, en vertical, y una flecha que indica hacia dónde va */
+.rest-handle{flex:none;width:var(--handle);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 0;border:0;background:transparent;cursor:pointer}
+.rest-handle strong{writing-mode:vertical-rl;font:800 17px var(--display);letter-spacing:.06em;color:var(--muted);font-variant-numeric:tabular-nums;max-height:90px;margin-bottom:7px;overflow:hidden;transition:max-height .26s cubic-bezier(.22,1,.36,1),margin-bottom .26s cubic-bezier(.22,1,.36,1),opacity .16s ease,color .2s}
+/* Desplegado sobra: el número grande ya está a la vista, así que se repliega */
+.rest-timer:not(.is-collapsed) .rest-handle strong{max-height:0;margin-bottom:0;opacity:0}
+.rest-timer.is-running .rest-handle strong{color:var(--hot)}
+.rest-chev{color:var(--muted);font-size:14px;line-height:1;transition:transform .26s cubic-bezier(.22,1,.36,1)}
+.rest-timer.side-right:not(.is-collapsed) .rest-chev,.rest-timer.side-left.is-collapsed .rest-chev{transform:rotate(180deg)}
+.rest-handle:hover .rest-chev,.rest-handle:hover strong{color:var(--hot)}
+/* Cuerpo: lo que se esconde tras el borde al plegar */
+.rest-body{display:flex;align-items:center;gap:12px;padding:12px 16px 12px 4px}
 /* Toca el número para iniciar/pausar la cuenta */
 .rest-info{display:flex;flex-direction:column;gap:2px;cursor:pointer}
 .rest-info span{font:10px var(--mono);color:var(--muted);letter-spacing:.14em}
@@ -39,26 +47,14 @@
 /* Número protagonista: grande y con tipografía tabular para que no baile */
 .rest-info strong{font:800 46px var(--display);line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;transition:color .2s}
 .rest-timer.is-running .rest-info strong{color:var(--hot)}
-.rest-timer:not(.collapsed) .rest-info:hover strong{color:var(--hot)}
-.rest-timer.is-running{box-shadow:0 10px 34px rgba(0,0,0,.45),0 0 0 1px var(--hot)}
+.rest-info:hover strong{color:var(--hot)}
 /* Opciones sugeridas pequeñas: chips compactos que envuelven en 2 filas */
 .rest-actions{display:flex;flex-wrap:wrap;gap:5px;max-width:132px}
 .rest-actions button{min-width:38px;padding:5px 7px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:600 11px var(--mono);cursor:pointer}
 .rest-actions button:hover{border-color:var(--hot);color:var(--hot)}
-/* Manija para plegar el contador hacia el borde */
-.rest-fold{flex:none;width:22px;height:44px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
-.rest-fold:hover{border-color:var(--hot);color:var(--hot)}
-/* Colapsado: pestaña delgada pegada a un borde de la pantalla */
-.rest-timer.collapsed{flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:12px 8px;min-height:62px;cursor:pointer}
-.rest-timer.collapsed .rest-grip,.rest-timer.collapsed .rest-info span,.rest-timer.collapsed .rest-actions,.rest-timer.collapsed .rest-fold{display:none}
-.rest-timer.collapsed .rest-info{display:none}
-.rest-timer.collapsed .rest-peek{display:block;font-size:20px;line-height:1;color:var(--muted)}
-.rest-timer.collapsed.is-running .rest-peek{display:none}
-.rest-timer.collapsed.is-running .rest-info{display:block}
-.rest-timer.collapsed .rest-info strong{writing-mode:vertical-rl;font-size:17px;letter-spacing:.06em;color:var(--hot)}
 /* Deja espacio al final para que el contador fijo no tape el contenido */
 .app-shell{padding-bottom:132px}
-@media(max-width:560px){.rest-timer{padding:11px 13px}.rest-info strong{font-size:40px}.rest-actions{max-width:126px}.app-shell{padding-bottom:122px}}
+@media(max-width:560px){.rest-body{padding:11px 13px 11px 4px}.rest-info strong{font-size:40px}.rest-actions{max-width:126px}.app-shell{padding-bottom:122px}}
 
 /* === Fix: el atributo hidden debe ocultar siempre (empty-state usa display:grid) === */
 [hidden]{display:none!important}
@@ -363,6 +359,18 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
   .pr-list{display:grid;grid-template-columns:1fr 1fr;gap:0 1px;background:var(--line)}
   .pr-list .pr-row{background:var(--panel)}
 }
+
+/* ==========================================================================
+   PLANTILLAS DE RUTINA · secciones del selector + onboarding del primer uso
+   ========================================================================== */
+.routine-group{position:sticky;top:0;z-index:1;margin:0;padding:9px 14px 6px;background:var(--panel);color:var(--muted);font:10px var(--mono);letter-spacing:.12em}
+.routine-option.is-template .routine-option-name::before{content:'◆ ';color:var(--hot);font-size:.8em}
+.routine-option.is-template .routine-option-meta{color:var(--hot2)}
+.onboarding{width:100%;max-width:420px;margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+.onboarding-steps{margin:0 0 18px;padding:0;list-style:none;counter-reset:ob;display:grid;gap:10px;text-align:left}
+.onboarding-steps li{position:relative;padding-left:30px;color:var(--muted);font:11px/1.5 var(--mono)}
+.onboarding-steps li::before{counter-increment:ob;content:counter(ob,decimal-leading-zero);position:absolute;left:0;top:0;color:var(--hot);font:700 11px var(--mono)}
+@media(max-width:720px){.routine-bar #saveTemplate{flex:1}}
 
 /* ==========================================================================
    AJUSTES · dos columnas en desktop

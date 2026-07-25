@@ -34,6 +34,7 @@ function setSeg(id, value) {
 function syncPrefUI() {
   setSeg('#themeSeg', document.body.classList.contains('dark') ? 'dark' : 'light');
   setSeg('#langSeg', getLang());
+  setSeg('#unitSeg', unit());
   setSeg('#restSeg', Number(localStorage.getItem(REST_DEF_KEY)) || 90);
   setSeg('#soundSeg', localStorage.getItem(SOUND_KEY) === 'off' ? 'off' : 'on');
   setSeg('#vibrateSeg', localStorage.getItem(VIBRATE_KEY) === 'off' ? 'off' : 'on');
@@ -53,6 +54,7 @@ document.querySelectorAll('#restSeg button').forEach(b => b.onclick = () => {
   if (!restInterval) stopRest(); // refleja la nueva duración en el contador en reposo
   syncPrefUI();
 });
+document.querySelectorAll('#unitSeg button').forEach(b => b.onclick = () => { setUnit(b.dataset.val); syncPrefUI(); });
 document.querySelectorAll('#soundSeg button').forEach(b => b.onclick = () => { localStorage.setItem(SOUND_KEY, b.dataset.val); syncPrefUI(); });
 document.querySelectorAll('#vibrateSeg button').forEach(b => b.onclick = () => { localStorage.setItem(VIBRATE_KEY, b.dataset.val); syncPrefUI(); });
 
@@ -98,7 +100,7 @@ function renderGlobalStats() {
   const tiles = [
     [t('config.stat.sessions'), nf(g.sessions)],
     [t('config.stat.sets'), nf(g.sets)],
-    [t('config.stat.volume'), `${nf(g.volume)} kg`],
+    [t('config.stat.volume'), `${nf(Math.round(toDisplay(g.volume)))} ${unitLabel()}`],
     [t('config.stat.exercises'), nf(g.distinct)],
     [t('config.stat.activeDays'), nf(g.activeDays)],
     [t('config.stat.avgSets'), nf(g.avgSets)],
@@ -107,6 +109,29 @@ function renderGlobalStats() {
   ];
   root.innerHTML = tiles.map(([label, value]) =>
     `<article class="progress-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></article>`).join('');
+}
+
+// --- Plantillas guardadas ---------------------------------------------------
+// Gestión mínima y suficiente: ver qué contiene cada plan, cargarlo o borrarlo.
+// Crearlas y editarlas se hace desde la sesión, que es donde ya está el trabajo.
+function renderTemplates() {
+  const root = document.querySelector('#templateList');
+  if (!root) return;
+  if (!templates.length) {
+    root.innerHTML = `<div class="config-row"><div><small>${t('config.noTemplates')}</small></div></div>`;
+    return;
+  }
+  root.innerHTML = templates.map(x => {
+    const moves = (x.exercises || []).map(e => e.name).join(' · ');
+    return `<div class="config-row"><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(moves || '—')}</small></div>`
+      + `<div class="backup-actions"><button class="secondary-button" data-use="${escapeHtml(x.id)}">${t('template.use')}</button>`
+      + `<button class="secondary-button danger-btn" data-del="${escapeHtml(x.id)}">${t('template.delete')}</button></div></div>`;
+  }).join('');
+  root.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteTemplate(b.dataset.del));
+  root.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => {
+    document.querySelector('.tab[data-view="session"]')?.click();
+    await applyTemplate(b.dataset.use);
+  });
 }
 
 // --- Almacenamiento del navegador -------------------------------------------
@@ -154,6 +179,7 @@ document.querySelector('#wipeData').onclick = async () => {
 // --- Pintado global de la pestaña -------------------------------------------
 function renderConfig() {
   syncPrefUI();
+  renderTemplates();
   renderGlobalStats();
   renderStorageInfo();
 }

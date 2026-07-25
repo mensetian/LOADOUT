@@ -33,15 +33,58 @@ const save = () => localStorage.setItem(KEY, JSON.stringify(sessions));
 // Lee un número aceptando coma o punto como separador decimal (teclados/locales ES).
 const num = v => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 
+// --- Unidades de carga (kg / lb) --------------------------------------------
+// Internamente TODO se guarda en kilos, siempre. La unidad solo cambia lo que se
+// muestra y lo que se teclea, así cambiarla no reescribe ni falsea el historial.
+const UNIT_KEY = 'loadout-unit';
+const LB_PER_KG = 2.2046226218;
+const unit = () => localStorage.getItem(UNIT_KEY) === 'lb' ? 'lb' : 'kg';
+const toUnit = (kg, u) => u === 'lb' ? Math.round(kg * LB_PER_KG * 10) / 10 : kg;
+const fromUnit = (v, u) => u === 'lb' ? Math.round(v / LB_PER_KG * 1000) / 1000 : v;
+const toDisplay = kg => toUnit(kg, unit());
+const fromDisplay = v => fromUnit(v, unit());
+// Etiqueta de la unidad; `showW` formatea una carga en kg lista para pintar.
+const unitLabel = () => unit();
+const showW = kg => `${toDisplay(kg)} ${unitLabel()}`;
+
+// --- Plantillas de rutina ---------------------------------------------------
+// Una plantilla es un plan fijo (día A/B/C): nombre + movimientos con sus series
+// objetivo. Vive aparte del historial: las sesiones son lo que hiciste, las
+// plantillas lo que piensas hacer.
+const TEMPLATES_KEY = 'loadout-templates-v1';
+let templates = [];
+try { const raw = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]'); if (Array.isArray(raw)) templates = raw; } catch {}
+const saveTemplates = () => localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+function makeTemplate(name, exercises) {
+  return { id: crypto.randomUUID(), name, exercises, updatedAt: new Date().toISOString() };
+}
+// Las plantillas también se fusionan por id al sincronizar; gana la más reciente.
+function mergeTemplates(local, remote) {
+  const byId = new Map();
+  for (const x of [...(remote || []), ...(local || [])]) {
+    if (!x?.id) continue;
+    const prev = byId.get(x.id);
+    if (!prev || (x.updatedAt || '') >= (prev.updatedAt || '')) byId.set(x.id, x);
+  }
+  return [...byId.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
 // --- Borrador de la sesión en curso -----------------------------------------
 // Guarda todo lo tecleado (aunque esté a medias) para no perderlo al recargar.
 function collectDraft() {
   const exercises = $$('.exercise-card').map(card => ({
     name: $('.exercise-name', card).value,
     done: card.classList.contains('is-collapsed'),
-    sets: $$('.set-row', card).map(r => ({ weight: $('.set-weight', r).value, reps: $('.set-reps', r).value })),
+    sets: $$('.set-row', card).map(r => {
+      const set = { weight: $('.set-weight', r).value, reps: $('.set-reps', r).value };
+      if (r.dataset.targetWeight != null) set.targetWeight = num(r.dataset.targetWeight);
+      if (r.dataset.targetReps != null) set.targetReps = num(r.dataset.targetReps);
+      return set;
+    }),
   }));
-  return { ...activeSession, name: $('#sessionName').value, date: $('#sessionDate').value || activeSession?.date, exercises };
+  // `_draft` marca que los pesos son texto tal cual se tecleó (no kg), y `_unit`
+  // en qué unidad se escribieron, para reinterpretarlos bien al restaurar.
+  return { ...activeSession, name: $('#sessionName').value, date: $('#sessionDate').value || activeSession?.date, exercises, _draft: true, _unit: unit() };
 }
 function draftHasContent(d) { return !!d && Array.isArray(d.exercises) && d.exercises.some(e => (e.name || '').trim() || e.sets?.some(s => s.weight || s.reps)); }
 function saveDraft() { if (restoring || !activeSession) return; localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraft())); renderLiveSummary(); }
@@ -77,18 +120,28 @@ function daysAgoLabel(dateKey) {
   const months=Math.floor(days/30);
   return months===1 ? t('routine.monthAgo') : t('routine.monthsAgo',{n:months});
 }
+// El panel muestra dos bloques: las PLANTILLAS (planes fijos que tú defines) y
+// las RECIENTES (rutinas deducidas de lo que ya entrenaste).
 function renderRoutinePanel(filter='') {
   const term=filter.trim().toLowerCase();
+  const tpls=templates.filter(x=>(x.name||'').toLowerCase().includes(term));
   const items=routineSummaries().filter(r=>r.name.toLowerCase().includes(term));
   const panel=$('#routinePanel');
-  if(!items.length){
+  if(!tpls.length && !items.length){
     panel.innerHTML=`<p class="routine-empty">${sessions.some(s=>(s.name||'').trim())
       ? t('routine.empty.some')
       : t('routine.empty.none')}</p>`;
     return;
   }
-  panel.innerHTML=items.map(r=>`<button type="button" class="routine-option" role="option" data-name="${escapeHtml(r.name)}"><span class="routine-option-name">${escapeHtml(r.name)}</span><span class="routine-option-meta">${daysAgoLabel(r.date)} · ${r.moves} ${t('routine.moves')} · ${r.times} ${r.times===1?t('routine.time'):t('routine.times')}</span></button>`).join('');
-  $$('.routine-option',panel).forEach(b=>b.onclick=()=>pickRoutine(b.dataset.name));
+  const group=label=>`<p class="routine-group">${label}</p>`;
+  const tplHtml=tpls.length
+    ? group(t('routine.group.templates'))+tpls.map(x=>`<button type="button" class="routine-option is-template" role="option" data-template="${escapeHtml(x.id)}"><span class="routine-option-name">${escapeHtml(x.name)}</span><span class="routine-option-meta">${t('routine.templateMeta',{n:(x.exercises||[]).length})}</span></button>`).join('')
+    : '';
+  const recentHtml=items.length
+    ? (tpls.length?group(t('routine.group.recent')):'')+items.map(r=>`<button type="button" class="routine-option" role="option" data-name="${escapeHtml(r.name)}"><span class="routine-option-name">${escapeHtml(r.name)}</span><span class="routine-option-meta">${daysAgoLabel(r.date)} · ${r.moves} ${t('routine.moves')} · ${r.times} ${r.times===1?t('routine.time'):t('routine.times')}</span></button>`).join('')
+    : '';
+  panel.innerHTML=tplHtml+recentHtml;
+  $$('.routine-option',panel).forEach(b=>b.onclick=()=> b.dataset.template ? applyTemplate(b.dataset.template) : pickRoutine(b.dataset.name));
 }
 function openRoutinePanel() {
   renderRoutinePanel($('#sessionName').value);
@@ -101,6 +154,73 @@ function pickRoutine(name) {
   $('#sessionName').value=name;
   if(activeSession) activeSession.name=name;
   closeRoutinePanel();
+}
+// Cargar una plantilla llena la sesión con sus movimientos colapsados y sus
+// pesos previstos como marca a superar, igual que "cargar rutina anterior".
+async function applyTemplate(id) {
+  const tpl=templates.find(x=>x.id===id); if(!tpl) return;
+  closeRoutinePanel();
+  if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
+  $('#sessionName').value=tpl.name; if(activeSession) activeSession.name=tpl.name;
+  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
+  (tpl.exercises||[]).forEach(e=>addExercise({name:e.name, done:true, sets:(e.sets||[]).map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false;
+  saveDraft();
+}
+// Para una plantilla vale tanto lo tecleado como lo previsto (los objetivos en
+// gris), así una rutina recién cargada se puede convertir en plan tal cual.
+function collectTemplateExercises() {
+  return $$('.exercise-card').map(card=>({
+    name:$('.exercise-name',card).value.trim(),
+    sets:$$('.set-row',card).map(r=>{
+      const typedW=$('.set-weight',r).value.trim(), typedR=$('.set-reps',r).value.trim();
+      return {
+        weight: typedW ? fromDisplay(num(typedW)) : (r.dataset.targetWeight!=null ? num(r.dataset.targetWeight) : 0),
+        reps:   typedR ? num(typedR)             : (r.dataset.targetReps!=null   ? num(r.dataset.targetReps)   : 0),
+      };
+    }).filter(s=>s.weight||s.reps),
+  })).filter(e=>e.name && e.sets.length);
+}
+async function saveCurrentAsTemplate() {
+  const name=$('#sessionName').value.trim();
+  if(!name){ await showAlert(t('template.needName')); return; }
+  const exercises=collectTemplateExercises();
+  if(!exercises.length){ await showAlert(t('template.needExercises')); return; }
+  const existing=templates.find(x=>(x.name||'').trim().toLowerCase()===name.toLowerCase());
+  if(existing){
+    if(!(await showConfirm(t('template.overwrite',{name}), {okText:t('template.overwriteOk')}))) return;
+    Object.assign(existing, {name, exercises, updatedAt:new Date().toISOString()});
+  } else templates.push(makeTemplate(name, exercises));
+  saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.();
+  await showAlert(t('template.saved',{name}));
+}
+// --- Primer arranque --------------------------------------------------------
+// Una app de registro vacía no explica nada por sí sola: hasta que haya algo
+// guardado, la pantalla vacía enseña los tres pasos y ofrece un plan de ejemplo.
+function exampleTemplateSeed() {
+  const reps=(w,r,n=3)=>Array.from({length:n},()=>({weight:w,reps:r}));
+  return { name:t('example.name'), exercises:[
+    { name:t('example.squat'), sets:reps(40,5) },
+    { name:t('example.bench'), sets:reps(30,5) },
+    { name:t('example.row'),   sets:reps(30,8) },
+  ]};
+}
+async function loadExampleRoutine() {
+  const seed=exampleTemplateSeed();
+  const tpl=makeTemplate(seed.name, seed.exercises);
+  templates.push(tpl); saveTemplates();
+  await applyTemplate(tpl.id);
+  renderOnboarding(); window.renderConfig?.();
+}
+function renderOnboarding() {
+  const el=$('#onboarding'); if(!el) return;
+  el.hidden = sessions.length>0 || templates.length>0;
+}
+async function deleteTemplate(id) {
+  const tpl=templates.find(x=>x.id===id); if(!tpl) return;
+  if(!(await showConfirm(t('template.deleteConfirm',{name:tpl.name}), {danger:true, okText:t('template.deleteOk')}))) return;
+  templates=templates.filter(x=>x.id!==id);
+  saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.();
 }
 // Navegación con flechas para escritorio.
 function moveRoutineHighlight(step) {
@@ -116,10 +236,15 @@ function getLastExercise(name) {
   const key = name.trim().toLowerCase(); if (!key) return null;
   return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>e.name.trim().toLowerCase()===key);
 }
-function updateLast(card) { const e = getLastExercise($('.exercise-name', card).value); $('.last-time', card).textContent = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>`${s.weight} kg × ${s.reps}`).join(' / ')}) : t('exercise.noLast'); }
+function updateLast(card) { const e = getLastExercise($('.exercise-name', card).value); $('.last-time', card).textContent = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>`${showW(s.weight)} × ${s.reps}`).join(' / ')}) : t('exercise.noLast'); }
+// `values.weight`/`values.reps` llegan listos para pintar (ya en la unidad
+// activa). `targetWeight` es la marca a superar y va SIEMPRE en kg: se guarda en
+// el dataset para sobrevivir a una recarga y a un cambio de unidad.
 function addSet(card, values = {}) {
   const node = $('#setTemplate').content.firstElementChild.cloneNode(true); $('.set-weight',node).value = values.weight ?? ''; $('.set-reps',node).value = values.reps ?? '';
-  $('.set-weight',node).placeholder = values.targetWeight != null ? `${values.targetWeight} kg` : t('set.weightPlaceholder');
+  if (values.targetWeight != null) node.dataset.targetWeight = values.targetWeight;
+  if (values.targetReps != null) node.dataset.targetReps = values.targetReps;
+  $('.set-weight',node).placeholder = values.targetWeight != null ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
   $('.set-reps',node).placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
   $('.remove-set',node).title = t('set.removeTitle');
   $('.set-rows',card).append(node); refreshSetNumbers(card);
@@ -148,7 +273,7 @@ function addExercise(data = {}) {
   $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
   $('.remove-exercise',card).title = t('exercise.removeTitle');
   $('.collapse-exercise',card).title = t('exercise.collapse');
-  $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.load'),t('set.label.reps'),''][i] ?? ''; });
+  $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.load',{unit:unitLabel().toUpperCase()}),t('set.label.reps'),''][i] ?? ''; });
   $('.add-set',card).textContent = t('set.add');
   (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
   // Autocompletado propio de nombres (reemplaza el datalist nativo, de estilo pobre).
@@ -170,6 +295,21 @@ function addExercise(data = {}) {
   $('#exerciseList').append(card); updateLast(card);
   if(data.done) setCollapsed(card, true);
 }
+// Deja los pesos en la unidad activa para pintarlos. La sesión puede venir del
+// historial (números en kg) o de un borrador (texto tecleado en `_unit`).
+function exercisesForRender(session) {
+  const src = session._draft ? (session._unit === 'lb' ? 'lb' : 'kg') : null;
+  return (session.exercises || []).map(e => ({
+    ...e,
+    sets: (e.sets || []).map(s => ({
+      ...s,
+      weight: s.weight === '' || s.weight == null ? ''
+        : src === null ? toDisplay(s.weight)
+        : src === unit() ? s.weight
+        : toDisplay(fromUnit(num(s.weight), src)),
+    })),
+  }));
+}
 function renderActiveSession() {
   restoring = true;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
@@ -180,7 +320,7 @@ function renderActiveSession() {
   $('#sessionDate').value = activeSession.date || todayKey();
   $('#deleteSession').hidden = !saved;
   refreshDatalists();
-  if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else activeSession.exercises.forEach(addExercise);
+  if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else exercisesForRender(activeSession).forEach(addExercise);
   restoring = false;
   renderLiveSummary();
 }
@@ -204,12 +344,16 @@ function renderLiveSummary() {
   root.innerHTML = `<span class="ls-title">${t('live.title')}</span><div class="ls-grid">`
     + `<div class="ls-cell"><b>${done}/${cards.length}</b><i>${t('live.moves')}</i></div>`
     + `<div class="ls-cell"><b>${sets}</b><i>${t('live.sets')}</i></div>`
-    + `<div class="ls-cell"><b>${nf(vol)}<em style="font-style:normal;font-size:.6em;color:var(--muted)"> kg</em></b><i>${t('live.volume')}</i></div>`
+    + `<div class="ls-cell"><b>${nf(vol)}<em style="font-style:normal;font-size:.6em;color:var(--muted)"> ${unitLabel()}</em></b><i>${t('live.volume')}</i></div>`
     + `</div>`;
 }
 function collectSession() {
-  const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:num($('.set-weight',r).value),reps:num($('.set-reps',r).value)})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
-  return {...activeSession, name:$('#sessionName').value.trim(), exercises};
+  // Lo tecleado está en la unidad activa; al historial va siempre en kg.
+  const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:fromDisplay(num($('.set-weight',r).value)),reps:num($('.set-reps',r).value)})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
+  // `_draft`/`_unit` son marcas del borrador: no deben acabar en el historial, o
+  // al reabrir la sesión sus kilos se releerían como si fueran otra unidad.
+  const {_draft, _unit, ...base} = activeSession || {};
+  return {...base, name:$('#sessionName').value.trim(), exercises};
 }
 async function finishSession() {
   const entry=collectSession(); if(!entry.exercises.length){ await showAlert(t('session.needExercise')); return; }
@@ -288,7 +432,7 @@ function renderSummary() {
   if(st){
     const delta = st.pct==null ? `<small>${t('summary.strengthBase')}</small>`
       : `<small class="delta ${st.pct>=0?'up':'down'}">${st.pct>=0?'▲':'▼'} ${Math.abs(st.pct)}% · 30D</small>`;
-    strengthCard.innerHTML=`<span>${t('summary.strength')} · ${escapeHtml(st.name)}</span><strong>${nf(st.e1rm)} <em>kg</em></strong>${delta}`;
+    strengthCard.innerHTML=`<span>${t('summary.strength')} · ${escapeHtml(st.name)}</span><strong>${nf(toDisplay(st.e1rm))} <em>${unitLabel()}</em></strong>${delta}`;
   } else strengthCard.innerHTML=`<span>${t('summary.strength')}</span><strong>—</strong><small>${t('summary.noData')}</small>`;
   const strip=weekStrip(), trained=strip.filter(d=>d.trained).length;
   const cal=strip.map(d=>`<span class="wd${d.trained?' on':''}${d.isToday?' today':''}${d.future?' future':''}">${d.letter}</span>`).join('');
@@ -296,21 +440,21 @@ function renderSummary() {
   const vd=volumeDelta();
   const loadDelta = vd.pct==null ? `<small>${t('summary.loadFirst')}</small>`
     : `<small class="delta neutral">${vd.pct>=0?'▲':'▼'} ${Math.abs(vd.pct)}% ${t('summary.vsPrev')}</small>`;
-  $('#cardLoad').innerHTML=`<span>${t('summary.load')}</span><strong>${nf(vd.current)} <em>kg</em></strong>${loadDelta}`;
+  $('#cardLoad').innerHTML=`<span>${t('summary.load')}</span><strong>${nf(toDisplay(vd.current))} <em>${unitLabel()}</em></strong>${loadDelta}`;
 }
 function renderPRs() {
   const root=$('#prList'); if(!root) return;
   const prs=personalRecords();
   if(!prs.length){ root.innerHTML=`<p class="no-data">${t('pr.none')}</p>`; return; }
-  root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${r.set.weight}×${r.set.reps}</span><strong class="pr-e1rm">${Math.round(r.e1rm)} kg</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
+  root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${toDisplay(r.set.weight)}×${r.set.reps}</span><strong class="pr-e1rm">${Math.round(toDisplay(r.e1rm))} ${unitLabel()}</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
 }
 function updateDashboard() {
-  renderSummary(); renderHistory(); populateProgress(); renderPRs(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
+  renderSummary(); renderHistory(); populateProgress(); renderPRs(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
 }
 function renderHistory() {
   const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value); let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)); if(period){const d=new Date();d.setDate(d.getDate()-period);data=data.filter(s=>new Date(s.date+'T12:00')>=d)}
   data=data.filter(s=>(s.name||'').toLowerCase().includes(term)||s.exercises.some(e=>e.name.toLowerCase().includes(term)));
-  $('#historyList').innerHTML=data.length?data.map(s=>`<article class="history-session"><header><div><h3>${escapeHtml(s.name||t('history.unnamed'))}</h3><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></header><div class="history-moves">${s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${x.weight}×${x.reps}`).join(' · ')}</small></div>`).join('')}</div></article>`).join(''):`<p class="no-data">${t('history.noData')}</p>`;
+  $('#historyList').innerHTML=data.length?data.map(s=>`<article class="history-session"><header><div><h3>${escapeHtml(s.name||t('history.unnamed'))}</h3><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></header><div class="history-moves">${s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${toDisplay(x.weight)}×${x.reps}`).join(' · ')}</small></div>`).join('')}</div></article>`).join(''):`<p class="no-data">${t('history.noData')}</p>`;
   $$('.edit-session').forEach(b=>b.onclick=()=>editSession(b.dataset.id));
 }
 // ¿Hay trabajo sin guardar en la sesión en curso? (cards con contenido y aún no guardada en el historial)
@@ -334,7 +478,8 @@ function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exer
 const e1rm = s => (s.weight||0) * (1 + (s.reps||0)/30);
 const PROGRESS_METRICS = ['e1rm','volume','max'];
 let progressMetric = 'e1rm';
-const metricValue = (r,m) => m==='e1rm' ? r.e1rm : m==='volume' ? r.volume : r.max;
+// Devuelve ya convertido a la unidad activa: solo se usa para pintar el gráfico.
+const metricValue = (r,m) => toDisplay(m==='e1rm' ? r.e1rm : m==='volume' ? r.volume : r.max);
 function renderProgress() {
   const name=$('#progressExercise').value;
   const records=[...sessions].sort((a,b)=>a.date.localeCompare(b.date))
@@ -351,13 +496,13 @@ function renderProgress() {
   const bars=records.slice(-8), maxVal=Math.max(...bars.map(r=>metricValue(r,progressMetric)),1);
   const fmt=v=> progressMetric==='max' ? Math.round(v*10)/10 : Math.round(v);
   const recent=[...records].slice(-6).reverse();
-  const topLabel=r=> r.top ? `${r.top.weight}×${r.top.reps}` : '—';
+  const topLabel=r=> r.top ? `${toDisplay(r.top.weight)}×${r.top.reps}` : '—';
   root.innerHTML=`
     <p class="progress-note">${t('progress.note')}</p>
     <div class="progress-stats">
-      <article class="progress-stat"><span>${t('progress.e1rmNow')}</span><strong>${Math.round(last.e1rm)} kg</strong></article>
-      <article class="progress-stat"><span>${t('progress.e1rmBest')}</span><strong>${Math.round(bestE)} kg</strong></article>
-      <article class="progress-stat"><span>${t('progress.change')}</span><strong>${diff>=0?'+':''}${Math.round(diff)} kg · ${pct>=0?'+':''}${pct}%</strong></article>
+      <article class="progress-stat"><span>${t('progress.e1rmNow')}</span><strong>${Math.round(toDisplay(last.e1rm))} ${unitLabel()}</strong></article>
+      <article class="progress-stat"><span>${t('progress.e1rmBest')}</span><strong>${Math.round(toDisplay(bestE))} ${unitLabel()}</strong></article>
+      <article class="progress-stat"><span>${t('progress.change')}</span><strong>${diff>=0?'+':''}${Math.round(toDisplay(diff))} ${unitLabel()} · ${pct>=0?'+':''}${pct}%</strong></article>
       <article class="progress-stat"><span>${t('progress.bestSet')}</span><strong>${topLabel(bestRec)}</strong></article>
     </div>
     <div class="metric-switch">${PROGRESS_METRICS.map(m=>`<button data-metric="${m}" class="${m===progressMetric?'is-active':''}">${t('progress.metric.'+m)}</button>`).join('')}</div>
@@ -368,8 +513,8 @@ function renderProgress() {
       <div class="bar-chart">${bars.map(r=>{const v=metricValue(r,progressMetric);return `<div class="bar-wrap"><span class="bar-value">${fmt(v)}</span><div class="bar" style="height:${Math.max(8,v/maxVal*115)}px"></div><span class="bar-label">${new Date(r.date+'T12:00').toLocaleDateString(dateLocale(),{day:'2-digit',month:'2-digit'})}</span></div>`}).join('')}</div>
     </article>
     <div class="recent-table">
-      <div class="recent-row head"><span>${t('progress.col.date')}</span><span>${t('progress.col.top')}</span><span>${t('progress.col.e1rm')}</span><span class="col-vol">${t('progress.col.volume')}</span></div>
-      ${recent.map(r=>`<div class="recent-row"><span>${dateFmt(r.date)}</span><span>${topLabel(r)}</span><strong>${Math.round(r.e1rm)}</strong><span class="col-vol">${Math.round(r.volume)}</span></div>`).join('')}
+      <div class="recent-row head"><span>${t('progress.col.date')}</span><span>${t('progress.col.top')}</span><span>${t('progress.col.e1rm')}</span><span class="col-vol">${t('progress.col.volume',{unit:unitLabel()})}</span></div>
+      ${recent.map(r=>`<div class="recent-row"><span>${dateFmt(r.date)}</span><span>${topLabel(r)}</span><strong>${Math.round(toDisplay(r.e1rm))}</strong><span class="col-vol">${Math.round(toDisplay(r.volume))}</span></div>`).join('')}
     </div>
     </div>`;
   $$('.metric-switch button').forEach(b=>b.onclick=()=>{ progressMetric=b.dataset.metric; renderProgress(); });
@@ -380,66 +525,60 @@ function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(
 function startRest(seconds=restDuration){
   restDuration=seconds; restEnds=Date.now()+seconds*1000; clearInterval(restInterval);
   $('#restTimer').classList.add('is-running');
-  const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); $('#restDisplay').textContent=fmtRest(left);
+  const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); showRest(fmtRest(left));
     if(left<=0){stopRest(); beep(); if(navigator.vibrate && localStorage.getItem('loadout-vibrate')!=='off')navigator.vibrate([200,100,200]);}};
   tick(); restInterval=setInterval(tick,250);
 }
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
-function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');$('#restDisplay').textContent=fmtRest(restDuration);}
+function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
+// El panel y la pestaña muestran el mismo tiempo: siempre se escriben juntos.
+function showRest(txt){$('#restDisplay').textContent=txt;$('#restTabDisplay').textContent=txt;}
 function beep(){if(localStorage.getItem('loadout-sound')==='off')return;try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
-$('#restDisplay').textContent=fmtRest(restDuration);
+showRest(fmtRest(restDuration));
 
 // --- El contador es un cajón: siempre anclado a un borde lateral, se arrastra
 // solo en vertical y cambia de lado si lo llevas a la otra mitad de la pantalla. ---
 const REST_POS_KEY='loadout-rest-pos';
-const REST_SLIDE=260;                                      // debe coincidir con la transición del CSS
+const REST_SLIDE=240;                                      // debe coincidir con la transición del CSS
 // Alto de la barra de navegación inferior (0 en desktop, donde el rail es lateral).
 function bottomNav(){ if(window.matchMedia('(min-width:1024px)').matches) return 0; const v=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--botnav')); return (Number.isFinite(v)?v:64)+8; }
 function readRestState(){ try{ return JSON.parse(localStorage.getItem(REST_POS_KEY))||{}; }catch{ return {}; } }
 function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s)); }
 (function initRest(){
-  const el=$('#restTimer'), fold=$('#restFold');
+  const el=$('#restTimer'), handle=$('#restHandle');
   const st=readRestState();
   // Por defecto: anclado a la derecha, a la altura del último tercio de la pantalla.
   let side = st.side==='left' ? 'left' : 'right';
-  let collapsed = !!st.collapsed;
+  let collapsed = st.collapsed!==false;                    // arranca plegado, sin tapar nada
   let top = Number.isFinite(st.top) ? st.top : Math.round(window.innerHeight*.62);
-  let animating=false;
 
+  // El alto no cambia entre estados: el tirador es tan alto como el cuerpo.
   function clampTop(v){ const pad=8, max=window.innerHeight-el.offsetHeight-pad-bottomNav(); return Math.min(Math.max(pad,v),Math.max(pad,max)); }
-  // Vuelca el estado al DOM. La flecha apunta al borde hacia el que se pliega.
   function place(){
-    el.classList.toggle('collapsed',collapsed);
+    el.classList.toggle('is-collapsed',collapsed);
     el.classList.toggle('side-right',side==='right');
     el.classList.toggle('side-left',side==='left');
-    fold.textContent = side==='right' ? '›' : '‹';
     top=clampTop(top); el.style.top=top+'px';
   }
   function saveRest(){ saveRestState({side,top,collapsed}); }
-  // Pliega/despliega deslizando: sale por su borde, cambia de forma y vuelve a entrar.
-  function setCollapsed(next){
-    if(animating||collapsed===next)return;
-    animating=true; collapsed=next; saveRest();
-    el.classList.add('slide-hidden');
-    setTimeout(()=>{
-      place();
-      void el.offsetWidth;                                 // reflow: reinicia la animación de entrada
-      el.classList.remove('slide-hidden');
-      animating=false;
-    },REST_SLIDE);
-  }
+  // Plegar y desplegar es un único desliz de la pieza completa: el cuerpo se
+  // esconde tras el borde y el tirador queda asomado. Nada cambia de forma.
+  function setCollapsed(next){ if(collapsed===next)return; collapsed=next; place(); saveRest(); }
 
   place();
-  requestAnimationFrame(()=>el.classList.remove('slide-hidden'));  // entrada inicial
-  fold.onclick=e=>{ e.stopPropagation(); setCollapsed(true); };
+  // Teclado: el tirador sigue siendo un botón normal.
+  handle.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setCollapsed(!collapsed); } });
 
   // Arrastre: vertical libre; cruzar la mitad de la pantalla lo cambia de lado.
-  // Toque sin arrastre: en la pestaña la despliega, en el número inicia/detiene.
-  let dragging=false, sx=0, sy=0, startTop=0, moved=false, onNumber=false;
+  // El toque sin arrastre se resuelve aquí y no con un `click`: al capturar el
+  // puntero el navegador dispara el click sobre el contenedor, no sobre el hijo.
+  let dragging=false, sx=0, sy=0, startTop=0, moved=false, onNumber=false, onHandle=false;
   el.addEventListener('pointerdown',e=>{
-    if(e.target.closest('button'))return;                  // presets y manija funcionan normal
-    dragging=true; moved=false; onNumber=!collapsed&&!!e.target.closest('.rest-info');
+    if(e.target.closest('.rest-actions'))return;           // los presets funcionan normal
+    dragging=true; moved=false;
+    onHandle=!!e.target.closest('.rest-handle');
+    onNumber=!collapsed&&!!e.target.closest('.rest-info');
     sx=e.clientX; sy=e.clientY; startTop=top; el.setPointerCapture(e.pointerId);
     el.classList.add('dragging');
   });
@@ -456,9 +595,9 @@ function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s));
   const endPointer=()=>{
     if(!dragging)return; dragging=false; el.classList.remove('dragging');
     if(moved) saveRest();
-    else if(collapsed) setCollapsed(false);
+    else if(onHandle) setCollapsed(!collapsed);            // toque en el tirador: abre o cierra
     else if(onNumber) restInterval?stopRest():startRest();
-    onNumber=false;
+    onHandle=onNumber=false;
   };
   el.addEventListener('pointerup',endPointer); el.addEventListener('pointercancel',endPointer);
 
@@ -477,7 +616,7 @@ function detectPRs(entry){
   for(const ex of entry.exercises){
     const key=ex.name.trim().toLowerCase(); const newMax=Math.max(...ex.sets.map(s=>s.weight),0); if(!newMax)continue;
     const oldMax=Math.max(0,...sessions.filter(s=>s.id!==entry.id).flatMap(s=>s.exercises.filter(e=>e.name.trim().toLowerCase()===key)).flatMap(e=>e.sets.map(x=>x.weight)));
-    if(oldMax&&newMax>oldMax)prs.push(`${ex.name}: ${newMax} kg (antes ${oldMax} kg)`);
+    if(oldMax&&newMax>oldMax)prs.push(t('pr.line',{name:ex.name, now:showW(newMax), before:showW(oldMax)}));
   }
   return prs;
 }
@@ -489,6 +628,17 @@ function renderTodayDates(){
 }
 renderTodayDates();
 $('#addExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#emptyAddExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#finishSession').onclick=finishSession;
+$('#saveTemplate').onclick=saveCurrentAsTemplate;
+$('#exampleRoutine').onclick=loadExampleRoutine;
+// Cambiar de unidad no toca el historial (siempre en kg): basta repintar, pero
+// hay que reinterpretar lo ya tecleado, que estaba en la unidad anterior.
+function setUnit(next) {
+  if(next===unit()) return;
+  const draft=activeSession ? collectDraft() : null; // queda sellado con la unidad vieja
+  localStorage.setItem(UNIT_KEY, next);
+  if(draft) activeSession=draft;                     // exercisesForRender lo convertirá
+  renderActiveSession(); updateDashboard(); saveDraft();
+}
 $('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; saveDraft(); };
 $('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); saveDraft(); };
 // Cualquier tecleo en series/nombres del ejercicio persiste el borrador.
@@ -520,8 +670,8 @@ $('#clearSession').onclick=async ()=>{
 $('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='records')renderPRs();if(t.dataset.view==='config')window.renderConfig?.();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
-$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
-$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
+$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions,templates};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
+$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;if(Array.isArray(payload.templates)){templates=payload.templates;saveTemplates();}save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
 // Recupera el borrador de la sesión en curso si se recargó/cerró sin finalizar.
 (function restoreDraft(){
   const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');
@@ -531,3 +681,12 @@ renderActiveSession();updateDashboard();
 window.onLangChange=()=>{ renderTodayDates(); renderActiveSession(); updateDashboard(); };
 
 if('serviceWorker' in navigator && location.protocol!=='file:')navigator.serviceWorker.register('sw.js');
+
+// Superficie para tests/index.html. Sin `type="module"` las `const` y `let` de
+// nivel superior no quedan colgadas de `window`, así que hay que exponerlas a
+// mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
+window.LOADOUT_TEST = {
+  e1rm, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender,
+  getSessions: () => sessions, setSessions: v => { sessions = v; },
+  getTemplates: () => templates, setTemplates: v => { templates = v; },
+};

@@ -32,9 +32,13 @@ Decisiones de diseño que marcan el carácter del proyecto:
 ## Funcionamiento por sección
 
 ### 01 · CAPTURAR
-- **Selector de rutina** propio: filtra al escribir y muestra, por cada rutina, hace
-  cuánto la hiciste, cuántos movimientos tenía y cuántas veces la repetiste. Sigue
-  admitiendo nombres nuevos escritos a mano.
+- **Selector de rutina** propio: filtra al escribir y muestra dos bloques —
+  **PLANTILLAS** (tus planes fijos) y **RECIENTES** (rutinas deducidas de lo que ya
+  entrenaste, con hace cuánto la hiciste, cuántos movimientos tenía y cuántas veces la
+  repetiste). Sigue admitiendo nombres nuevos escritos a mano.
+- **Plantillas de rutina** — un plan fijo (día A/B/C) que existe aunque no lo hayas
+  entrenado nunca. **Guardar plantilla** convierte la sesión actual en plan; al cargarla,
+  sus pesos aparecen como marca a superar. Se gestionan desde **Ajustes**.
 - **Cargar rutina anterior** — precarga los ejercicios de tu última sesión con ese
   nombre, con los pesos/reps previos como referencia.
 - **Limpiar** — vacía los movimientos de la sesión en curso.
@@ -76,6 +80,13 @@ más automática a la más segura:
 - **Instala la PWA:** Safari borra el almacenamiento de sitios que no abres en ~7 días;
   las apps de la pantalla de inicio quedan fuera de esa regla.
 
+### Unidades: kg o lb
+
+Las cargas se guardan **siempre en kilos**, pase lo que pase. La preferencia de
+**Ajustes → Unidad de carga** solo cambia lo que se muestra y lo que tecleas, así que
+cambiar de unidad no reescribe ni falsea un historial ya registrado, y puedes ir y volver
+sin perder precisión.
+
 Estructura de una sesión guardada:
 
 ```json
@@ -110,7 +121,9 @@ LOADOUT/
 ├── .gitignore
 ├── docs/
 │   ├── ROADMAP.md      ← estado y próximos pasos
+│   ├── PLAN.md         ← plan de publicación (Play Store, donaciones, difusión)
 │   └── DRIVE.md        ← activar la sincronización con Drive
+├── tests/              ← tests sin framework: abre tests/index.html
 └── src/
     ├── css/styles.css  ← estilos, tema claro/oscuro, responsive
     ├── js/
@@ -139,6 +152,28 @@ python -m http.server 8000    # o: npx serve .
 ```
 
 Y abrir http://localhost:8000.
+
+### Tests
+
+Sin framework ni dependencias: abre **http://localhost:8000/tests/** y verás el resultado
+en la propia página. Cargan la app real en un iframe y prueban lo que, si se rompe,
+destruye datos o confianza: la fusión con Drive, la detección de récords, la conversión de
+unidades y el ciclo exportar → importar.
+
+Si prefieres el resultado en la terminal, hay un runner **opcional** que abre esa misma
+página en un navegador headless:
+
+```bash
+npm install playwright-core   # una vez; queda fuera de git
+node tests/run.js
+```
+
+No descarga ningún navegador: reutiliza el Chrome o Edge que ya tengas, con un perfil
+nuevo y vacío. Es solo comodidad — el proyecto sigue sin dependencias obligatorias.
+
+> Los tests comparten origen con la app, así que **nunca** deben llamar a `save()` ni a
+> `saveTemplates()`: escribirían sobre tu historial real. Solo tocan funciones puras y
+> restauran en memoria lo que reasignan.
 
 ### Publicar
 

@@ -111,7 +111,7 @@ function driveExpired(response, retry) {
 
 // --- Guardar ----------------------------------------------------------------
 async function driveSave({ silent = false } = {}) {
-  const body = JSON.stringify({ app: 'LOADOUT', version: 1, exportedAt: new Date().toISOString(), sessions }, null, 2);
+  const body = JSON.stringify({ app: 'LOADOUT', version: 1, exportedAt: new Date().toISOString(), sessions, templates }, null, 2);
   const fileId = localStorage.getItem(DRIVE_FILE_KEY);
   setDriveStatus(t('drive.saving'));
 
@@ -225,6 +225,13 @@ async function driveSync({ silent, retry }) {
       adoptSessions(merged, t('drive.syncReason'));
       combined = true;
     }
+    // Las plantillas se fusionan aparte, por su propio id.
+    const mergedTemplates = mergeTemplates(templates, payload.templates);
+    if (JSON.stringify(mergedTemplates) !== JSON.stringify(templates)) {
+      templates = mergedTemplates;
+      saveTemplates();
+      window.renderConfig?.();
+    }
   }
 
   await driveSave({ silent: true }); // sube la unión ya reconciliada
@@ -258,6 +265,7 @@ async function driveRestore() {
     if (!ok) { setDriveStatus(t('drive.forceCancelled')); return; }
 
     adoptSessions([...payload.sessions], t('drive.restoreReason'));
+    if (Array.isArray(payload.templates)) { templates = payload.templates; saveTemplates(); window.renderConfig?.(); }
     setDriveStatus(t('drive.restored',{n:sessions.length}), 'is-ok');
     await showAlert(t('drive.restoredAlert'));
   } catch (error) {
@@ -281,5 +289,7 @@ document.querySelector('#connChip').onclick = () => {
   withDriveToken(manualSync);
 };
 initDrive();
+// La fusión vive aquí, pero se prueba desde tests/index.html (ver app.js).
+window.LOADOUT_TEST = { ...window.LOADOUT_TEST, mergeSessions };
 const prevOnLangChange = window.onLangChange;
 window.onLangChange = () => { prevOnLangChange?.(); updateConnChip(lastChipKind); renderBackupStatus?.(); };

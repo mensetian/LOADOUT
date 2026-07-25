@@ -31,7 +31,7 @@ function readSnapshots() {
 function snapshot(reason) {
   try {
     const snaps = readSnapshots();
-    snaps.unshift({ at: new Date().toISOString(), reason, sessions });
+    snaps.unshift({ at: new Date().toISOString(), reason, sessions, templates });
     localStorage.setItem(SNAP_KEY, JSON.stringify(snaps.slice(0, MAX_SNAPSHOTS)));
   } catch { /* sin espacio: no bloqueamos la acción del usuario */ }
   renderSnapshotStatus();
@@ -72,6 +72,8 @@ async function restoreLastSnapshot() {
   if (!ok) return;
   snapshot(t('undo.restoreReason'));
   sessions = last.sessions;
+  // Las copias viejas no llevaban plantillas: en ese caso se dejan como están.
+  if (Array.isArray(last.templates)) { templates = last.templates; saveTemplates(); }
   save();
   activeSession = makeSession();
   renderActiveSession();
