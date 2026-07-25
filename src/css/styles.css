@@ -228,3 +228,140 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 .config-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .config-group .backup-card{margin:0 0 10px}
 @media(max-width:720px){.config-row{align-items:flex-start;flex-direction:column}.config-control,.seg{width:100%;justify-content:flex-start}.config-value{text-align:left}.config-stats{grid-template-columns:repeat(2,1fr)}}
+
+/* ==========================================================================
+   APP FRAME  ·  navegación: barra inferior (móvil) / rail lateral (desktop)
+   Una sola <nav class="tabs"> se reordena por CSS; el JS no cambia.
+   ========================================================================== */
+:root{--rail:106px;--botnav:64px;--safe-b:env(safe-area-inset-bottom,0px)}
+.layout{min-height:100vh}
+.content{min-width:0}
+
+/* --- Mobile-first: navegación anclada abajo, al alcance del pulgar --- */
+.railnav{position:fixed;z-index:50;left:0;right:0;bottom:0;height:calc(var(--botnav) + var(--safe-b));display:flex;align-items:stretch;padding-bottom:var(--safe-b);background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.rail-brand{display:none}
+.railnav .tabs,body.dark .railnav .tabs{position:static;flex:1;display:flex;gap:0;margin:0;padding:0;border:0;background:none;overflow:visible}
+.railnav .tab{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:auto;padding:7px 2px;border:0;background:none;color:var(--muted);font:700 9px var(--mono);letter-spacing:.02em;cursor:pointer}
+.railnav .tab::after{display:none}
+.tab-ico{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:transform .16s ease}
+.tab-label{text-transform:uppercase;font-size:9px;line-height:1}
+.railnav .tab.active{color:var(--hot)}
+.railnav .tab.active .tab-ico{transform:translateY(-1px)}
+.railnav .tab:active .tab-ico{transform:scale(.88)}
+
+@media(max-width:1023px){
+  .app-shell{padding-bottom:calc(168px + var(--safe-b))}
+}
+
+/* --- Desktop ≥1024: rail vertical fijo a la izquierda (app-frame) --- */
+@media(min-width:1024px){
+  .railnav{top:0;right:auto;bottom:0;width:var(--rail);height:100vh;flex-direction:column;gap:16px;padding:20px 10px calc(20px + var(--safe-b));border-top:0;border-right:1px solid var(--line);background:color-mix(in srgb,var(--bg) 70%,transparent)}
+  .rail-brand{display:grid;place-items:center}
+  .rail-brand .brand-mark{width:42px;height:42px;border-radius:var(--radius)}
+  .rail-brand .brand-mark svg{width:24px;height:24px}
+  .rail-brand-text{display:none}
+  .railnav .tabs{flex:0 0 auto;flex-direction:column;gap:6px}
+  .railnav .tab{flex:0 0 auto;gap:6px;padding:13px 4px;border-radius:var(--radius);transition:background-color .15s ease,color .15s ease}
+  .railnav .tab:hover{color:var(--ink);background:var(--panel)}
+  .railnav .tab.active{color:var(--hot);background:color-mix(in srgb,var(--hot) 13%,transparent)}
+  .tab-ico{width:24px;height:24px}
+  .content{margin-left:var(--rail)}
+  .app-shell{padding-bottom:150px}
+  .topbar .brand .brand-mark{display:none}
+  .topbar{height:72px;gap:14px}
+}
+
+/* Hero descartable: una vez visto, se retira del flujo (no deja banda vacía). */
+.hero.hero--min{display:none}
+
+/* Fix 1 · el header necesita el mismo margen lateral que el contenido */
+.topbar{padding:0 clamp(20px,5vw,80px)}
+@media(max-width:720px){.topbar{padding:0 17px}}
+
+/* Fix 5 · barra de indicadores colapsable (y recordada) + menos comprimida */
+.summary-wrap{margin-top:28px}
+.summary-wrap .summary-grid{margin-top:0}
+.summary-toggle{display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:4px 0;border:0;background:none;color:var(--muted);font:10px var(--mono);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;min-height:32px}
+.summary-toggle:hover{color:var(--hot)}
+.summary-toggle .st-chev{font-size:12px;transition:transform .2s ease}
+.summary-wrap.is-collapsed .st-chev{transform:rotate(-90deg)}
+.summary-wrap.is-collapsed .summary-grid{display:none}
+@media(max-width:720px){
+  .summary-card{min-height:120px;padding:16px 13px}
+  .summary-card span{font-size:9px}
+  .summary-card strong{margin:10px 0 3px;font-size:27px}
+  .summary-card strong em{white-space:nowrap}
+  .week-cal{margin:10px 0 7px}
+  .week-cal .wd{height:22px}
+}
+/* En móvil, 3 columnas aprietan la semana y parten el "kg".
+   Reflujo: FUERZA + CARGA arriba (media col c/u), CONSTANCIA a todo el ancho. */
+@media(max-width:560px){
+  .summary-grid{grid-template-columns:1fr 1fr}
+  #cardStrength{order:1}
+  #cardLoad{order:2}
+  #cardConsistency{order:3;grid-column:1 / -1;min-height:0}
+  .week-cal{gap:6px;margin:13px 0 9px}
+  .week-cal .wd{height:28px;font-size:12px;border-radius:5px}
+  .week-cal .wd.today{box-shadow:none}
+  .week-cal .wd.on.today{box-shadow:none}
+}
+
+/* Fix 2 · autocompletado de nombres de ejercicio (panel propio, no el datalist) */
+.ex-namewrap{position:relative}
+.ac-panel{position:absolute;z-index:35;top:calc(100% + 5px);left:0;right:0;max-height:232px;overflow-y:auto;border:1px solid var(--hot);border-radius:6px;background:var(--panel);box-shadow:0 16px 40px rgba(0,0,0,.5)}
+.ac-option{display:block;width:100%;padding:11px 13px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);font:600 14px var(--display);letter-spacing:.02em;text-transform:uppercase;text-align:left;cursor:pointer}
+.ac-option:last-child{border-bottom:0}
+.ac-option:hover,.ac-option.is-active{background:var(--panel2);color:var(--hot)}
+
+/* En móvil: el botón "Nuevo movimiento" sigue al listado; separa de ahí el panel de sesión */
+@media(max-width:959px){
+  .session-rail{margin-top:0}
+  .session-rail .live-summary{margin-top:24px}
+  .session-rail > .live-summary[hidden] + .session-footer{margin-top:24px}
+}
+
+/* ==========================================================================
+   SESSION  ·  registro + panel lateral en vivo (2 columnas en desktop)
+   ========================================================================== */
+.session-main{min-width:0}
+.session-rail{min-width:0}
+.live-summary{margin-bottom:14px;padding:15px 17px;border:1px solid var(--line);border-left:3px solid var(--hot);background:var(--panel)}
+.live-summary .ls-title{display:block;margin-bottom:12px;color:var(--muted);font:10px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.ls-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.ls-cell{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ls-cell b{font:500 22px var(--mono);letter-spacing:-.03em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-cell i{color:var(--muted);font:9px var(--mono);font-style:normal;text-transform:uppercase;letter-spacing:.04em}
+@media(min-width:960px){
+  .session-layout{display:grid;grid-template-columns:minmax(0,1fr) 322px;gap:28px;align-items:start}
+  .session-rail{position:sticky;top:24px;display:flex;flex-direction:column;gap:14px}
+  .session-rail .add-exercise{margin:0}
+  .session-rail .live-summary{margin:0}
+  .session-rail .session-footer{justify-content:stretch;padding-top:0}
+  .session-rail .finish-button{width:100%;justify-content:center;text-align:center;padding:18px}
+}
+
+/* ==========================================================================
+   MÉTRICAS · gráfico y tabla lado a lado en desktop
+   ========================================================================== */
+@media(min-width:960px){
+  .progress-cols{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start}
+  .progress-cols .chart-card{margin-top:0}
+  .progress-cols .recent-table{margin-top:0}
+}
+
+/* ==========================================================================
+   RÉCORDS · rejilla de 2 columnas en desktop
+   ========================================================================== */
+@media(min-width:960px){
+  .pr-list{display:grid;grid-template-columns:1fr 1fr;gap:0 1px;background:var(--line)}
+  .pr-list .pr-row{background:var(--panel)}
+}
+
+/* ==========================================================================
+   AJUSTES · dos columnas en desktop
+   ========================================================================== */
+@media(min-width:960px){
+  .config-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px;align-items:start}
+  .config-group{margin-bottom:22px}
+}

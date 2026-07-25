@@ -42,7 +42,7 @@ function collectDraft() {
   return { ...activeSession, name: $('#sessionName').value, date: $('#sessionDate').value || activeSession?.date, exercises };
 }
 function draftHasContent(d) { return !!d && Array.isArray(d.exercises) && d.exercises.some(e => (e.name || '').trim() || e.sets?.some(s => s.weight || s.reps)); }
-function saveDraft() { if (restoring || !activeSession) return; localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraft())); }
+function saveDraft() { if (restoring || !activeSession) return; localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraft())); renderLiveSummary(); }
 function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
 const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d+'T12:00'));
 // Fecha local (no UTC): con toISOString por la noche saltaba al día siguiente.
@@ -149,7 +149,20 @@ function addExercise(data = {}) {
   $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.load'),t('set.label.reps'),''][i] ?? ''; });
   $('.add-set',card).textContent = t('set.add');
   (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
-  $('.exercise-name',card).oninput = () => updateLast(card); $('.exercise-name',card).onblur = () => updateLast(card);
+  // Autocompletado propio de nombres (reemplaza el datalist nativo, de estilo pobre).
+  const nameInput = $('.exercise-name',card), acPanel = $('.ac-panel',card);
+  const renderAc = () => {
+    const term = nameInput.value.trim().toLowerCase();
+    const items = exerciseNames().filter(n => n.toLowerCase().includes(term)).slice(0,8);
+    if (!items.length || (items.length===1 && items[0].toLowerCase()===term)) { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); return; }
+    acPanel.innerHTML = items.map(n=>`<button type="button" class="ac-option" role="option">${escapeHtml(n)}</button>`).join('');
+    $$('.ac-option',acPanel).forEach(b=>b.onclick=()=>{ nameInput.value=b.textContent; acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); updateLast(card); saveDraft(); });
+    acPanel.hidden=false; nameInput.setAttribute('aria-expanded','true');
+  };
+  nameInput.oninput = () => { updateLast(card); renderAc(); };
+  nameInput.onfocus = renderAc;
+  nameInput.onblur = () => { updateLast(card); setTimeout(()=>{ acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); }, 150); };
+  nameInput.onkeydown = e => { if (e.key==='Escape') { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); } };
   $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); saveDraft(); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
   $('.collapse-exercise',card).onclick = () => { setCollapsed(card, !card.classList.contains('is-collapsed')); saveDraft(); };
   $('#exerciseList').append(card); updateLast(card);
@@ -167,6 +180,30 @@ function renderActiveSession() {
   refreshDatalists();
   if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else activeSession.exercises.forEach(addExercise);
   restoring = false;
+  renderLiveSummary();
+}
+// Panel lateral en vivo (desktop) / resumen sobre "Finalizar" (móvil).
+function renderLiveSummary() {
+  const root = $('#liveSummary'); if (!root) return;
+  const cards = $$('.exercise-card');
+  if (!cards.length) { root.hidden = true; return; }
+  let done = 0, sets = 0, vol = 0;
+  cards.forEach(card => {
+    if (card.classList.contains('is-collapsed')) done++;
+    $$('.set-row', card).forEach(r => {
+      const w = parseFloat($('.set-weight', r).value) || parseFloat($('.set-weight', r).placeholder) || 0;
+      const reps = parseFloat($('.set-reps', r).value) || parseFloat($('.set-reps', r).placeholder) || 0;
+      if (w || reps) sets++;
+      vol += w * reps;
+    });
+  });
+  const nf = n => Math.round(n).toLocaleString(dateLocale());
+  root.hidden = false;
+  root.innerHTML = `<span class="ls-title">${t('live.title')}</span><div class="ls-grid">`
+    + `<div class="ls-cell"><b>${done}/${cards.length}</b><i>${t('live.moves')}</i></div>`
+    + `<div class="ls-cell"><b>${sets}</b><i>${t('live.sets')}</i></div>`
+    + `<div class="ls-cell"><b>${nf(vol)}<em style="font-style:normal;font-size:.6em;color:var(--muted)"> kg</em></b><i>${t('live.volume')}</i></div>`
+    + `</div>`;
 }
 function collectSession() {
   const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:Number($('.set-weight',r).value)||0,reps:Number($('.set-reps',r).value)||0})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
@@ -312,6 +349,7 @@ function renderProgress() {
       <article class="progress-stat"><span>${t('progress.bestSet')}</span><strong>${topLabel(bestRec)}</strong></article>
     </div>
     <div class="metric-switch">${PROGRESS_METRICS.map(m=>`<button data-metric="${m}" class="${m===progressMetric?'is-active':''}">${t('progress.metric.'+m)}</button>`).join('')}</div>
+    <div class="progress-cols">
     <article class="chart-card">
       <h3>${escapeHtml(name)}</h3>
       <p>${t('progress.chartMetric',{metric:t('progress.metric.'+progressMetric), n:bars.length})}</p>
@@ -320,6 +358,7 @@ function renderProgress() {
     <div class="recent-table">
       <div class="recent-row head"><span>${t('progress.col.date')}</span><span>${t('progress.col.top')}</span><span>${t('progress.col.e1rm')}</span><span class="col-vol">${t('progress.col.volume')}</span></div>
       ${recent.map(r=>`<div class="recent-row"><span>${dateFmt(r.date)}</span><span>${topLabel(r)}</span><strong>${Math.round(r.e1rm)}</strong><span class="col-vol">${Math.round(r.volume)}</span></div>`).join('')}
+    </div>
     </div>`;
   $$('.metric-switch button').forEach(b=>b.onclick=()=>{ progressMetric=b.dataset.metric; renderProgress(); });
 }
@@ -342,6 +381,8 @@ $('#restDisplay').textContent=fmtRest(restDuration);
 
 // --- Posición del contador: se ancla a un lado con el botón; deslizable solo en vertical ---
 const REST_POS_KEY='loadout-rest-pos';
+// Alto de la barra de navegación inferior (0 en desktop, donde el rail es lateral).
+function bottomNav(){ if(window.matchMedia('(min-width:1024px)').matches) return 0; const v=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--botnav')); return (Number.isFinite(v)?v:64)+8; }
 function readRestState(){ try{ return JSON.parse(localStorage.getItem(REST_POS_KEY))||{}; }catch{ return {}; } }
 function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s)); }
 // Lado con más espacio libre respecto al contenido (el que menos cruza la info).
@@ -352,7 +393,7 @@ function bestSide(){
 function setFoldArrow(side){ $('#restFold').textContent = side==='right' ? '›' : '‹'; }
 function clampRestPos(left,top){
   const el=$('#restTimer'), pad=8, w=el.offsetWidth||220, h=el.offsetHeight||70;
-  const maxL=window.innerWidth-w-pad, maxT=window.innerHeight-h-pad;
+  const maxL=window.innerWidth-w-pad, maxT=window.innerHeight-h-pad-bottomNav();
   return {left:Math.min(Math.max(pad,left),Math.max(pad,maxL)), top:Math.min(Math.max(pad,top),Math.max(pad,maxT))};
 }
 // Desplegado: se puede mover libremente y recuerda su posición. La flecha del
@@ -365,7 +406,7 @@ function applyExpanded(pos){
   const p = pos || (Number.isFinite(st.left)&&Number.isFinite(st.top) ? {left:st.left,top:st.top} : null);
   if(p){ const c=clampRestPos(p.left,p.top); el.style.left=c.left+'px'; el.style.top=c.top+'px'; el.style.right='auto'; el.style.bottom='auto'; return c; }
   // Sin posición guardada: esquina inferior del lado con menos cruce.
-  const side=bestSide(); el.style.top='auto'; el.style.bottom='18px';
+  const side=bestSide(); el.style.top='auto'; el.style.bottom=(bottomNav()+18)+'px';
   if(side==='right'){ el.style.right='clamp(12px,4vw,32px)'; el.style.left='auto'; }
   else { el.style.left='clamp(12px,4vw,32px)'; el.style.right='auto'; }
   return null;
@@ -377,7 +418,7 @@ function applyCollapsed(side,top){
   el.style.bottom='auto';
   if(side==='right'){ el.style.right='0px'; el.style.left='auto'; }
   else { el.style.left='0px'; el.style.right='auto'; }
-  const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad;
+  const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad-bottomNav();
   const wanted=Number.isFinite(top)?top:el.getBoundingClientRect().top;
   const clTop=Math.min(Math.max(pad,wanted),Math.max(pad,maxTop));
   el.style.top=clTop+'px';
@@ -407,7 +448,7 @@ function expandRest(){ const st=readRestState(); applyExpanded(); saveRestState(
     if(!dragging)return;
     if(Math.hypot(e.clientX-sx,e.clientY-sy)>6) moved=true;
     if(!moved)return;
-    if(mode==='v'){ const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad; el.style.top=Math.min(Math.max(pad,startTop+(e.clientY-sy)),Math.max(pad,maxTop))+'px'; }
+    if(mode==='v'){ const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad-bottomNav(); el.style.top=Math.min(Math.max(pad,startTop+(e.clientY-sy)),Math.max(pad,maxTop))+'px'; }
     else { const c=clampRestPos(e.clientX-offX,e.clientY-offY); el.style.left=c.left+'px'; el.style.top=c.top+'px'; el.style.right='auto'; el.style.bottom='auto'; }
   });
   const endPointer=()=>{
@@ -426,11 +467,11 @@ function expandRest(){ const st=readRestState(); applyExpanded(); saveRestState(
   window.addEventListener('resize',()=>{ const s=readRestState(); if(s.collapsed) applyCollapsed(s.side||bestSide(), s.cTop); else applyExpanded(); });
 })();
 
-// --- Bienvenida (hero) solo la primera vez ---
-const HERO_KEY='loadout-hero-seen';
-function collapseHero(){ $('#heroText').hidden=true; $('#inicio').classList.add('hero--min'); }
-if(localStorage.getItem(HERO_KEY)) collapseHero();
-$('#heroClose').onclick=()=>{ collapseHero(); localStorage.setItem(HERO_KEY,'1'); };
+// --- Barra de indicadores colapsable (recordada) ---
+const SUMMARY_KEY='loadout-summary-collapsed';
+function applySummaryCollapsed(c){ $('#summaryWrap')?.classList.toggle('is-collapsed',c); $('#summaryToggle')?.setAttribute('aria-expanded',String(!c)); }
+$('#summaryToggle')?.addEventListener('click',()=>{ const c=!$('#summaryWrap').classList.contains('is-collapsed'); localStorage.setItem(SUMMARY_KEY,c?'1':'0'); applySummaryCollapsed(c); });
+applySummaryCollapsed(localStorage.getItem(SUMMARY_KEY)==='1');
 
 // --- Récords personales ---
 function detectPRs(entry){
@@ -447,7 +488,6 @@ function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':
 
 function renderTodayDates(){
   $('#today').textContent=new Intl.DateTimeFormat(dateLocale(),{weekday:'long',day:'numeric',month:'long'}).format(new Date());
-  $('#heroDate').textContent=new Intl.DateTimeFormat(dateLocale(),{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
 }
 renderTodayDates();
 $('#addExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#emptyAddExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#finishSession').onclick=finishSession;
