@@ -61,56 +61,6 @@ document.querySelectorAll('#vibrateSeg button').forEach(b => b.onclick = () => {
 // El botón de tema del header también persiste ahora.
 document.querySelector('#themeButton').onclick = () => setTheme(document.body.classList.contains('dark') ? 'light' : 'dark');
 
-// --- Resumen global ---------------------------------------------------------
-function computeGlobalStats() {
-  const allSets = sessions.flatMap(s => s.exercises.flatMap(e => e.sets));
-  const names = sessions.flatMap(s => s.exercises.map(e => e.name.trim()).filter(Boolean));
-  const distinct = new Set(names.map(n => n.toLowerCase())).size;
-  const dates = sessions.map(s => s.date).sort();
-  const activeDays = new Set(dates).size;
-
-  // Movimiento estrella: el que aparece en más sesiones (conserva su forma original).
-  const freq = new Map(), label = new Map();
-  sessions.forEach(s => {
-    new Set(s.exercises.map(e => e.name.trim()).filter(Boolean).map(n => n.toLowerCase())).forEach(key => freq.set(key, (freq.get(key) || 0) + 1));
-    s.exercises.forEach(e => { const k = e.name.trim().toLowerCase(); if (k && !label.has(k)) label.set(k, e.name.trim()); });
-  });
-  let starKey = null, starCount = 0;
-  freq.forEach((count, key) => { if (count > starCount) { starCount = count; starKey = key; } });
-
-  return {
-    sessions: sessions.length,
-    sets: allSets.length,
-    volume: Math.round(allSets.reduce((tot, s) => tot + (s.weight || 0) * (s.reps || 0), 0)),
-    distinct,
-    activeDays,
-    avgSets: sessions.length ? Math.round(allSets.length / sessions.length) : 0,
-    star: starKey ? label.get(starKey) : null,
-    starCount,
-    first: dates[0] || null,
-  };
-}
-
-function renderGlobalStats() {
-  const root = document.querySelector('#globalStats');
-  if (!root) return;
-  if (!sessions.length) { root.innerHTML = `<p class="no-data">${t('config.noData')}</p>`; return; }
-  const g = computeGlobalStats();
-  const nf = n => n.toLocaleString(dateLocale());
-  const tiles = [
-    [t('config.stat.sessions'), nf(g.sessions)],
-    [t('config.stat.sets'), nf(g.sets)],
-    [t('config.stat.volume'), `${nf(Math.round(toDisplay(g.volume)))} ${unitLabel()}`],
-    [t('config.stat.exercises'), nf(g.distinct)],
-    [t('config.stat.activeDays'), nf(g.activeDays)],
-    [t('config.stat.avgSets'), nf(g.avgSets)],
-    [t('config.stat.star'), g.star ? `${g.star} · ${g.starCount}×` : '—'],
-    [t('config.stat.first'), g.first ? dateFmt(g.first) : '—'],
-  ];
-  root.innerHTML = tiles.map(([label, value]) =>
-    `<article class="progress-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></article>`).join('');
-}
-
 // --- Plantillas guardadas ---------------------------------------------------
 // Gestión mínima y suficiente: ver qué contiene cada plan, cargarlo o borrarlo.
 // Crearlas y editarlas se hace desde la sesión, que es donde ya está el trabajo.
@@ -180,7 +130,6 @@ document.querySelector('#wipeData').onclick = async () => {
 function renderConfig() {
   syncPrefUI();
   renderTemplates();
-  renderGlobalStats();
   renderStorageInfo();
 }
 window.renderConfig = renderConfig;

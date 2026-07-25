@@ -184,6 +184,8 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 /* === Métricas: switch de indicador y tabla reciente === */
 .progress-stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .progress-stat strong{font-size:20px}
+/* Resumen global: cabecera de la vista de progreso, antes del detalle por movimiento. */
+.global-stats{margin:0 0 30px}
 .progress-note{margin:0 0 14px;color:var(--muted);font:10px/1.55 var(--mono)}
 .metric-switch{display:flex;gap:6px;margin:14px 0 12px;flex-wrap:wrap}
 .metric-switch button{padding:9px 13px;min-height:38px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:700 10px var(--mono);letter-spacing:.04em;cursor:pointer}
@@ -214,7 +216,7 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 
 /* === Pestaña de Ajustes (04) === */
 .config-group{margin-bottom:34px}
-.config-legend{margin:0 0 14px;color:var(--muted);font:10px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.config-legend,.section-legend{margin:0 0 14px;color:var(--muted);font:10px var(--mono);letter-spacing:.1em;text-transform:uppercase}
 .config-legend.is-danger{color:var(--red)}
 .config-rows{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line)}
 .config-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 18px;background:var(--panel);flex-wrap:wrap}
