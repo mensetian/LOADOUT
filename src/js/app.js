@@ -388,95 +388,81 @@ function startRest(seconds=restDuration){
 function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');$('#restDisplay').textContent=fmtRest(restDuration);}
 function beep(){if(localStorage.getItem('loadout-sound')==='off')return;try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
-$('#restStop').onclick=stopRest;
 $('#restDisplay').textContent=fmtRest(restDuration);
 
-// --- Posición del contador: se ancla a un lado con el botón; deslizable solo en vertical ---
+// --- El contador es un cajón: siempre anclado a un borde lateral, se arrastra
+// solo en vertical y cambia de lado si lo llevas a la otra mitad de la pantalla. ---
 const REST_POS_KEY='loadout-rest-pos';
+const REST_SLIDE=260;                                      // debe coincidir con la transición del CSS
 // Alto de la barra de navegación inferior (0 en desktop, donde el rail es lateral).
 function bottomNav(){ if(window.matchMedia('(min-width:1024px)').matches) return 0; const v=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--botnav')); return (Number.isFinite(v)?v:64)+8; }
 function readRestState(){ try{ return JSON.parse(localStorage.getItem(REST_POS_KEY))||{}; }catch{ return {}; } }
 function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s)); }
-// Lado con más espacio libre respecto al contenido (el que menos cruza la info).
-function bestSide(){
-  const shell=$('.app-shell'); const r=shell?shell.getBoundingClientRect():{left:0,right:window.innerWidth};
-  return (window.innerWidth-r.right) > (r.left+8) ? 'right' : 'left';
-}
-function setFoldArrow(side){ $('#restFold').textContent = side==='right' ? '›' : '‹'; }
-function clampRestPos(left,top){
-  const el=$('#restTimer'), pad=8, w=el.offsetWidth||220, h=el.offsetHeight||70;
-  const maxL=window.innerWidth-w-pad, maxT=window.innerHeight-h-pad-bottomNav();
-  return {left:Math.min(Math.max(pad,left),Math.max(pad,maxL)), top:Math.min(Math.max(pad,top),Math.max(pad,maxT))};
-}
-// Desplegado: se puede mover libremente y recuerda su posición. La flecha del
-// botón marca a qué lado (el de menos cruce) se plegará al pulsarlo.
-function applyExpanded(pos){
-  const el=$('#restTimer');
-  el.classList.remove('collapsed','collapsed-left','collapsed-right');
-  setFoldArrow(bestSide());
-  const st=readRestState();
-  const p = pos || (Number.isFinite(st.left)&&Number.isFinite(st.top) ? {left:st.left,top:st.top} : null);
-  if(p){ const c=clampRestPos(p.left,p.top); el.style.left=c.left+'px'; el.style.top=c.top+'px'; el.style.right='auto'; el.style.bottom='auto'; return c; }
-  // Sin posición guardada: esquina inferior del lado con menos cruce.
-  const side=bestSide(); el.style.top='auto'; el.style.bottom=(bottomNav()+18)+'px';
-  if(side==='right'){ el.style.right='clamp(12px,4vw,32px)'; el.style.left='auto'; }
-  else { el.style.left='clamp(12px,4vw,32px)'; el.style.right='auto'; }
-  return null;
-}
-// Colapsado: pestaña pegada al borde; la posición vertical (top) es ajustable.
-function applyCollapsed(side,top){
-  const el=$('#restTimer');
-  el.classList.add('collapsed'); el.classList.remove('collapsed-left','collapsed-right'); el.classList.add('collapsed-'+side);
-  el.style.bottom='auto';
-  if(side==='right'){ el.style.right='0px'; el.style.left='auto'; }
-  else { el.style.left='0px'; el.style.right='auto'; }
-  const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad-bottomNav();
-  const wanted=Number.isFinite(top)?top:el.getBoundingClientRect().top;
-  const clTop=Math.min(Math.max(pad,wanted),Math.max(pad,maxTop));
-  el.style.top=clTop+'px';
-  return clTop;
-}
-function expandRest(){ const st=readRestState(); applyExpanded(); saveRestState({...st, collapsed:false}); }
 (function initRest(){
-  const el=$('#restTimer');
+  const el=$('#restTimer'), fold=$('#restFold');
   const st=readRestState();
-  if(st.collapsed) applyCollapsed(st.side||bestSide(), st.cTop); else applyExpanded();
+  // Por defecto: anclado a la derecha, a la altura del último tercio de la pantalla.
+  let side = st.side==='left' ? 'left' : 'right';
+  let collapsed = !!st.collapsed;
+  let top = Number.isFinite(st.top) ? st.top : Math.round(window.innerHeight*.62);
+  let animating=false;
 
-  // Botón: pliega hacia el lado con menos cruce (el que marca la flecha).
-  $('#restFold').onclick=e=>{ e.stopPropagation(); const side=bestSide(); const cTop=applyCollapsed(side, el.getBoundingClientRect().top); const s=readRestState(); saveRestState({...s, collapsed:true, side, cTop}); };
+  function clampTop(v){ const pad=8, max=window.innerHeight-el.offsetHeight-pad-bottomNav(); return Math.min(Math.max(pad,v),Math.max(pad,max)); }
+  // Vuelca el estado al DOM. La flecha apunta al borde hacia el que se pliega.
+  function place(){
+    el.classList.toggle('collapsed',collapsed);
+    el.classList.toggle('side-right',side==='right');
+    el.classList.toggle('side-left',side==='left');
+    fold.textContent = side==='right' ? '›' : '‹';
+    top=clampTop(top); el.style.top=top+'px';
+  }
+  function saveRest(){ saveRestState({side,top,collapsed}); }
+  // Pliega/despliega deslizando: sale por su borde, cambia de forma y vuelve a entrar.
+  function setCollapsed(next){
+    if(animating||collapsed===next)return;
+    animating=true; collapsed=next; saveRest();
+    el.classList.add('slide-hidden');
+    setTimeout(()=>{
+      place();
+      void el.offsetWidth;                                 // reflow: reinicia la animación de entrada
+      el.classList.remove('slide-hidden');
+      animating=false;
+    },REST_SLIDE);
+  }
 
-  // Desplegado: se mueve libremente (y se recuerda); un toque en el número = play/pausa.
-  // Anclado: se desliza solo en vertical; un toque lo despliega.
-  let dragging=false, mode=null, offX=0, offY=0, sx=0, sy=0, startTop=0, moved=false, downOnNumber=false;
+  place();
+  requestAnimationFrame(()=>el.classList.remove('slide-hidden'));  // entrada inicial
+  fold.onclick=e=>{ e.stopPropagation(); setCollapsed(true); };
+
+  // Arrastre: vertical libre; cruzar la mitad de la pantalla lo cambia de lado.
+  // Toque sin arrastre: en la pestaña la despliega, en el número inicia/detiene.
+  let dragging=false, sx=0, sy=0, startTop=0, moved=false, onNumber=false;
   el.addEventListener('pointerdown',e=>{
-    if(e.target.closest('button')) return;                 // botones (presets/stop/fold) funcionan normal
-    const collapsed=el.classList.contains('collapsed');
-    dragging=true; moved=false; sx=e.clientX; sy=e.clientY; el.setPointerCapture(e.pointerId);
-    if(collapsed){ mode='v'; startTop=parseFloat(el.style.top)||el.getBoundingClientRect().top; }
-    else { mode='free'; downOnNumber=!!e.target.closest('.rest-info'); const r=el.getBoundingClientRect(); offX=e.clientX-r.left; offY=e.clientY-r.top; }
+    if(e.target.closest('button'))return;                  // presets y manija funcionan normal
+    dragging=true; moved=false; onNumber=!collapsed&&!!e.target.closest('.rest-info');
+    sx=e.clientX; sy=e.clientY; startTop=top; el.setPointerCapture(e.pointerId);
     el.classList.add('dragging');
   });
   el.addEventListener('pointermove',e=>{
     if(!dragging)return;
     if(Math.hypot(e.clientX-sx,e.clientY-sy)>6) moved=true;
     if(!moved)return;
-    if(mode==='v'){ const pad=8, maxTop=window.innerHeight-el.offsetHeight-pad-bottomNav(); el.style.top=Math.min(Math.max(pad,startTop+(e.clientY-sy)),Math.max(pad,maxTop))+'px'; }
-    else { const c=clampRestPos(e.clientX-offX,e.clientY-offY); el.style.left=c.left+'px'; el.style.top=c.top+'px'; el.style.right='auto'; el.style.bottom='auto'; }
+    top=clampTop(startTop+(e.clientY-sy)); el.style.top=top+'px';
+    if(Math.abs(e.clientX-sx)>50){
+      const want = e.clientX < window.innerWidth/2 ? 'left' : 'right';
+      if(want!==side){ side=want; place(); }
+    }
   });
   const endPointer=()=>{
     if(!dragging)return; dragging=false; el.classList.remove('dragging');
-    if(mode==='v'){
-      if(moved){ const s=readRestState(); saveRestState({...s, collapsed:true, cTop:parseFloat(el.style.top)}); }
-      else expandRest();                                   // toque en la pestaña anclada
-    } else {
-      if(!moved){ if(downOnNumber) restInterval?stopRest():startRest(); }
-      else { const r=el.getBoundingClientRect(); const c=clampRestPos(r.left,r.top); const s=readRestState(); saveRestState({...s, collapsed:false, left:c.left, top:c.top}); }
-    }
-    downOnNumber=false;
+    if(moved) saveRest();
+    else if(collapsed) setCollapsed(false);
+    else if(onNumber) restInterval?stopRest():startRest();
+    onNumber=false;
   };
   el.addEventListener('pointerup',endPointer); el.addEventListener('pointercancel',endPointer);
 
-  window.addEventListener('resize',()=>{ const s=readRestState(); if(s.collapsed) applyCollapsed(s.side||bestSide(), s.cTop); else applyExpanded(); });
+  window.addEventListener('resize',place);
 })();
 
 // --- Barra de indicadores colapsable (recordada) ---
