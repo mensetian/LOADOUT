@@ -24,6 +24,7 @@
 .rest-timer.side-left{left:0;right:auto;border-radius:0 var(--radius) var(--radius) 0;border-left-color:transparent}
 /* El tirador siempre mira al interior de la pantalla: es lo único que queda a la vista */
 .rest-timer.side-right .rest-handle{order:-1}
+.rest-timer.side-left .rest-handle{order:9}
 .rest-timer.side-right.is-collapsed{transform:translateX(calc(100% - var(--handle)))}
 .rest-timer.side-left.is-collapsed{transform:translateX(calc(var(--handle) - 100%))}
 .rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);transition:none}
@@ -38,7 +39,9 @@
 .rest-timer.side-right:not(.is-collapsed) .rest-chev,.rest-timer.side-left.is-collapsed .rest-chev{transform:rotate(180deg)}
 .rest-handle:hover .rest-chev,.rest-handle:hover strong{color:var(--hot)}
 /* Cuerpo: lo que se esconde tras el borde al plegar */
-.rest-body{display:flex;align-items:center;gap:12px;padding:12px 16px 12px 4px}
+.rest-body{display:flex;align-items:center;gap:12px;padding:12px 16px}
+.side-right .rest-body{padding-left:4px}
+.side-left .rest-body{padding-right:4px}
 /* Toca el número para iniciar/pausar la cuenta */
 .rest-info{display:flex;flex-direction:column;gap:2px;cursor:pointer}
 .rest-info span{font:10px var(--mono);color:var(--muted);letter-spacing:.14em}
@@ -54,7 +57,7 @@
 .rest-actions button:hover{border-color:var(--hot);color:var(--hot)}
 /* Deja espacio al final para que el contador fijo no tape el contenido */
 .app-shell{padding-bottom:132px}
-@media(max-width:560px){.rest-body{padding:11px 13px 11px 4px}.rest-info strong{font-size:40px}.rest-actions{max-width:126px}.app-shell{padding-bottom:122px}}
+@media(max-width:560px){.rest-body{padding:11px 13px}.rest-info strong{font-size:40px}.rest-actions{max-width:126px}.app-shell{padding-bottom:122px}}
 
 /* === Fix: el atributo hidden debe ocultar siempre (empty-state usa display:grid) === */
 [hidden]{display:none!important}
