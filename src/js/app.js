@@ -30,6 +30,8 @@ let sessions = JSON.parse(localStorage.getItem(KEY) || '[]');
 let activeSession = null;
 let restoring = false; // evita reescribir el borrador mientras se pinta la sesión
 const save = () => localStorage.setItem(KEY, JSON.stringify(sessions));
+// Lee un número aceptando coma o punto como separador decimal (teclados/locales ES).
+const num = v => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 
 // --- Borrador de la sesión en curso -----------------------------------------
 // Guarda todo lo tecleado (aunque esté a medias) para no perderlo al recargar.
@@ -129,7 +131,7 @@ function exerciseSummaryText(card) {
   // Usa el valor tecleado; si está vacío, cae al objetivo (placeholder) de la rutina.
   const sets=$$('.set-row',card).map(r=>{
     const w=$('.set-weight',r), reps=$('.set-reps',r);
-    return { w:w.value||parseFloat(w.placeholder)||0, reps:reps.value||parseFloat(reps.placeholder)||0 };
+    return { w:num(w.value)||parseFloat(w.placeholder)||0, reps:num(reps.value)||parseFloat(reps.placeholder)||0 };
   }).filter(s=>s.w||s.reps);
   return sets.length ? sets.map(s=>`${s.w}×${s.reps}`).join(' · ') : t('exercise.noSets');
 }
@@ -191,8 +193,8 @@ function renderLiveSummary() {
   cards.forEach(card => {
     if (card.classList.contains('is-collapsed')) done++;
     $$('.set-row', card).forEach(r => {
-      const w = parseFloat($('.set-weight', r).value) || parseFloat($('.set-weight', r).placeholder) || 0;
-      const reps = parseFloat($('.set-reps', r).value) || parseFloat($('.set-reps', r).placeholder) || 0;
+      const w = num($('.set-weight', r).value) || parseFloat($('.set-weight', r).placeholder) || 0;
+      const reps = num($('.set-reps', r).value) || parseFloat($('.set-reps', r).placeholder) || 0;
       if (w || reps) sets++;
       vol += w * reps;
     });
@@ -206,7 +208,7 @@ function renderLiveSummary() {
     + `</div>`;
 }
 function collectSession() {
-  const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:Number($('.set-weight',r).value)||0,reps:Number($('.set-reps',r).value)||0})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
+  const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:num($('.set-weight',r).value),reps:num($('.set-reps',r).value)})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
   return {...activeSession, name:$('#sessionName').value.trim(), exercises};
 }
 async function finishSession() {
@@ -311,8 +313,18 @@ function renderHistory() {
   $('#historyList').innerHTML=data.length?data.map(s=>`<article class="history-session"><header><div><h3>${escapeHtml(s.name||t('history.unnamed'))}</h3><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></header><div class="history-moves">${s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${x.weight}×${x.reps}`).join(' · ')}</small></div>`).join('')}</div></article>`).join(''):`<p class="no-data">${t('history.noData')}</p>`;
   $$('.edit-session').forEach(b=>b.onclick=()=>editSession(b.dataset.id));
 }
-function editSession(id) {
-  const s=sessions.find(x=>x.id===id); if(!s) return; activeSession=JSON.parse(JSON.stringify(s)); renderActiveSession();
+// ¿Hay trabajo sin guardar en la sesión en curso? (cards con contenido y aún no guardada en el historial)
+function hasUnsavedSession() {
+  if (sessions.some(s=>s.id===activeSession?.id)) return false; // ya guardada: editar no pierde nada nuevo
+  return $$('.exercise-card').some(card =>
+    $('.exercise-name',card).value.trim() ||
+    $$('.set-row',card).some(r=>$('.set-weight',r).value.trim()||$('.set-reps',r).value.trim()));
+}
+async function editSession(id) {
+  const s=sessions.find(x=>x.id===id); if(!s) return;
+  // Evita pisar el progreso del día sin querer al abrir una rutina vieja para editarla.
+  if(hasUnsavedSession() && !(await showConfirm(t('session.switchConfirm'), {danger:true, okText:t('session.switchOk')}))) return;
+  activeSession=JSON.parse(JSON.stringify(s)); renderActiveSession();
   $$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.view==='session')); $$('.view').forEach(v=>v.classList.toggle('active',v.id==='sessionView'));
   $('#sessionView').scrollIntoView({behavior:'smooth'});
 }
