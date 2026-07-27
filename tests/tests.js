@@ -63,7 +63,7 @@ function run(frameWindow) {
   if (!w) throw new Error('la app no expuso window.LOADOUT_TEST');
 
   // Copias de seguridad en memoria: las devolvemos intactas al terminar.
-  const realSessions = w.getSessions(), realTemplates = w.getTemplates();
+  const realSessions = w.getSessions(), realTemplates = w.getTemplates(), realCardio = w.getCardio();
   const realUnit = localStorage.getItem('loadout-unit');
 
   try {
@@ -262,9 +262,66 @@ function run(frameWindow) {
       const again = JSON.parse(JSON.stringify(list));
       equal(w.mergeSessions(list, again).length, 2, 'la fusión debe ser idempotente');
     });
+    group('CARDIO');
+
+    const card = (id, date, activity, minutes, updatedAt, extra = {}) => ({ id, date, activity, minutes, updatedAt, ...extra });
+    const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+    test('une el cardio de ambos lados por id', () => {
+      const merged = w.mergeCardio(
+        [card('1', '2026-01-01', 'Patineta', 60, '2026-01-01T00:00:00.000Z')],
+        [card('2', '2026-01-02', 'Bici', 30, '2026-01-02T00:00:00.000Z')]);
+      equal(merged.map(c => c.id).sort(), ['1', '2'], 'no debe perder ninguna entrada');
+    });
+
+    test('ante el mismo id gana la entrada editada más tarde', () => {
+      const merged = w.mergeCardio(
+        [card('1', '2026-01-01', 'Patineta', 60, '2026-01-01T00:00:00.000Z')],
+        [card('1', '2026-01-01', 'Patineta', 90, '2026-06-01T00:00:00.000Z')]);
+      equal(merged.length, 1, 'no debe duplicar');
+      equal(merged[0].minutes, 90, 'debe quedarse la versión más nueva');
+    });
+
+    test('tolera que el otro lado no traiga cardio (respaldo viejo)', () => {
+      equal(w.mergeCardio([card('1', '2026-01-01', 'Patineta', 60, '2026-01-01T00:00:00.000Z')], undefined).length, 1,
+        'undefined debe tratarse como lista vacía');
+    });
+
+    test('reimportar el mismo respaldo no duplica cardio', () => {
+      const list = [card('1', '2026-01-01', 'Patineta', 60, '2026-01-01T00:00:00.000Z')];
+      equal(w.mergeCardio(list, JSON.parse(JSON.stringify(list))).length, 1, 'la fusión debe ser idempotente');
+    });
+
+    test('el acumulado suma minutos y promedia el esfuerzo', () => {
+      w.setCardio([
+        card('1', '2026-01-01', 'Patineta', 60, '2026-01-01T00:00:00.000Z', { rpe: 6 }),
+        card('2', '2026-01-02', 'Patineta', 40, '2026-01-02T00:00:00.000Z', { rpe: 8 }),
+        card('3', '2026-01-03', 'Bici', 30, '2026-01-03T00:00:00.000Z'),
+      ]);
+      const s = w.cardioStats();
+      equal(s.count, 3, 'tres registros');
+      equal(s.minutes, 130, 'minutos totales');
+      equal(s.avgRpe, 7, 'el promedio ignora los registros sin esfuerzo marcado');
+      equal(s.top.name, 'Patineta', 'la actividad principal es la de más minutos');
+      equal(s.top.minutes, 100, 'minutos de la actividad principal');
+    });
+
+    test('los últimos 7 días solo cuentan lo reciente', () => {
+      w.setCardio([
+        card('viejo', '2020-01-01', 'Patineta', 999, '2020-01-01T00:00:00.000Z'),
+        card('hoy', todayISO(), 'Patineta', 45, new Date().toISOString()),
+      ]);
+      equal(w.cardioStats().weekMinutes, 45, 'lo antiguo no debe entrar en la ventana de 7 días');
+    });
+
+    test('sin esfuerzo marcado el promedio queda vacío, no en cero', () => {
+      w.setCardio([card('1', '2026-01-01', 'Patineta', 60, '2026-01-01T00:00:00.000Z')]);
+      equal(w.cardioStats().avgRpe, null, 'no debe inventar un 0/10');
+    });
   } finally {
     w.setSessions(realSessions);
     w.setTemplates(realTemplates);
+    w.setCardio(realCardio);
     if (realUnit === null) localStorage.removeItem('loadout-unit');
     else localStorage.setItem('loadout-unit', realUnit);
   }

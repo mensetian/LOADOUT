@@ -111,7 +111,7 @@ function driveExpired(response, retry) {
 
 // --- Guardar ----------------------------------------------------------------
 async function driveSave({ silent = false } = {}) {
-  const body = JSON.stringify({ app: 'LOADOUT', version: 1, exportedAt: new Date().toISOString(), sessions, templates }, null, 2);
+  const body = JSON.stringify({ app: 'LOADOUT', version: 1, exportedAt: new Date().toISOString(), sessions, templates, cardio }, null, 2);
   const fileId = localStorage.getItem(DRIVE_FILE_KEY);
   setDriveStatus(t('drive.saving'));
 
@@ -232,6 +232,14 @@ async function driveSync({ silent, retry }) {
       saveTemplates();
       window.renderConfig?.();
     }
+    // Y el cardio igual: su propia lista, su propia fusión por id.
+    const mergedCardio = mergeCardio(cardio, payload.cardio);
+    if (JSON.stringify(mergedCardio) !== JSON.stringify(cardio)) {
+      cardio = mergedCardio;
+      saveCardio();
+      updateDashboard();
+      combined = true;
+    }
   }
 
   await driveSave({ silent: true }); // sube la unión ya reconciliada
@@ -266,6 +274,7 @@ async function driveRestore() {
 
     adoptSessions([...payload.sessions], t('drive.restoreReason'));
     if (Array.isArray(payload.templates)) { templates = payload.templates; saveTemplates(); window.renderConfig?.(); }
+    if (Array.isArray(payload.cardio)) { cardio = payload.cardio; saveCardio(); updateDashboard(); }
     setDriveStatus(t('drive.restored',{n:sessions.length}), 'is-ok');
     await showAlert(t('drive.restoredAlert'));
   } catch (error) {
@@ -290,6 +299,7 @@ document.querySelector('#connChip').onclick = () => {
 };
 initDrive();
 // La fusión vive aquí, pero se prueba desde tests/index.html (ver app.js).
-window.LOADOUT_TEST = { ...window.LOADOUT_TEST, mergeSessions };
+window.LOADOUT_TEST = { ...window.LOADOUT_TEST, mergeSessions, mergeCardio, cardioStats,
+  getCardio: () => cardio, setCardio: v => { cardio = v; } };
 const prevOnLangChange = window.onLangChange;
 window.onLangChange = () => { prevOnLangChange?.(); updateConnChip(lastChipKind); renderBackupStatus?.(); };

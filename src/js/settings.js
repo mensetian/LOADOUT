@@ -112,11 +112,13 @@ async function renderStorageInfo() {
 
 // --- Borrar todo ------------------------------------------------------------
 document.querySelector('#wipeData').onclick = async () => {
-  if (!sessions.length) { await showAlert(t('config.wipeEmpty')); return; }
-  const ok = await showConfirm(t('config.wipeConfirm', { n: sessions.length }), { danger: true, okText: t('config.wipeOk') });
+  if (!sessions.length && !cardio.length) { await showAlert(t('config.wipeEmpty')); return; }
+  const ok = await showConfirm(t('config.wipeConfirm', { n: sessions.length + cardio.length }), { danger: true, okText: t('config.wipeOk') });
   if (!ok) return;
   snapshot(t('config.wipeReason'));
   sessions = [];
+  cardio = [];
+  saveCardio();
   save();
   clearDraft();
   activeSession = makeSession();

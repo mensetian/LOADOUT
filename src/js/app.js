@@ -214,7 +214,7 @@ async function loadExampleRoutine() {
 }
 function renderOnboarding() {
   const el=$('#onboarding'); if(!el) return;
-  el.hidden = sessions.length>0 || templates.length>0;
+  el.hidden = sessions.length>0 || templates.length>0 || cardio.length>0;
 }
 async function deleteTemplate(id) {
   const tpl=templates.find(x=>x.id===id); if(!tpl) return;
@@ -321,6 +321,8 @@ function renderActiveSession() {
   $('#deleteSession').hidden = !saved;
   refreshDatalists();
   if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else exercisesForRender(activeSession).forEach(addExercise);
+  // Con el capturador en modo cardio el encabezado es suyo, no el de la sesión de fuerza.
+  if (captureMode === 'cardio') $('#sessionTitle').textContent = t('cardio.title');
   restoring = false;
   renderLiveSummary();
 }
@@ -389,19 +391,23 @@ function strengthTrend() {
   const pct=base.e1rm>0 ? Math.round((last.e1rm-base.e1rm)/base.e1rm*100) : null;
   return {name:star.name, e1rm:last.e1rm, pct};
 }
+// Constancia = haber entrenado, sea fuerza o cardio. Un día de patineta cuenta
+// igual que uno de barra: si no, la racha castigaría por hacer cardio.
+const trainedDates = () => [...sessions.map(s=>s.date), ...cardio.map(c=>c.date)].filter(Boolean);
 // Semana actual (lunes→domingo) con inicial del día, marcando hoy y futuros.
 function weekStrip() {
   const letters=t('week.days').split(' ');
   const today=new Date(), tKey=todayKey();
   const monday=new Date(today); monday.setDate(today.getDate()-((today.getDay()+6)%7));
+  const active=new Set(trainedDates());
   const days=[];
   for(let i=0;i<7;i++){ const d=new Date(monday); d.setDate(monday.getDate()+i); const key=keyOf(d);
-    days.push({ key, letter:letters[i]||'', trained:sessions.some(s=>s.date===key), isToday:key===tKey, future:key>tKey }); }
+    days.push({ key, letter:letters[i]||'', trained:active.has(key), isToday:key===tKey, future:key>tKey }); }
   return days;
 }
 // Racha: semanas consecutivas (lun-dom) con al menos un entrenamiento.
 function weekStreak() {
-  const weeks=new Set(sessions.map(s=>mondayKey(new Date(s.date+'T12:00'))));
+  const weeks=new Set(trainedDates().map(d=>mondayKey(new Date(d+'T12:00'))));
   let streak=0; const cur=new Date();
   while(weeks.has(mondayKey(cur))){ streak++; cur.setDate(cur.getDate()-7); }
   return streak;
@@ -449,7 +455,7 @@ function renderPRs() {
   root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${toDisplay(r.set.weight)}×${r.set.reps}</span><strong class="pr-e1rm">${Math.round(toDisplay(r.e1rm))} ${unitLabel()}</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
 }
 function updateDashboard() {
-  renderSummary(); renderHistory(); populateProgress(); renderPRs(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
+  renderSummary(); renderHistory(); populateProgress(); renderPRs(); renderCardio(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
 }
 // El LOG agrupa por mes y muestra cada sesión plegada: con muchas sesiones, la
 // lista expandida se volvía un muro de texto imposible de recorrer.
@@ -461,29 +467,44 @@ const monthLabel = key => new Intl.DateTimeFormat(dateLocale(),{month:'long',yea
 const openMonths = new Set();
 let monthsSeeded = false, historyWasFiltered = false;
 function renderHistory() {
-  const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value); let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)); if(period){const d=new Date();d.setDate(d.getDate()-period);data=data.filter(s=>new Date(s.date+'T12:00')>=d)}
+  const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value);
+  const inPeriod=dateKey=>{ if(!period) return true; const d=new Date(); d.setDate(d.getDate()-period); return new Date(dateKey+'T12:00')>=d; };
+  let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)).filter(s=>inPeriod(s.date));
   data=data.filter(s=>(s.name||'').toLowerCase().includes(term)||s.exercises.some(e=>e.name.toLowerCase().includes(term)));
+  // El cardio comparte el LOG con la fuerza: el registro es uno solo, aunque los
+  // datos de cada tipo sean distintos.
+  const cardioData=[...cardio].filter(c=>c.date&&inPeriod(c.date))
+    .filter(c=>(c.activity||'').toLowerCase().includes(term)||(c.note||'').toLowerCase().includes(term));
+  const items=[...data.map(s=>({date:s.date, kind:'strength', session:s})),
+               ...cardioData.map(c=>({date:c.date, kind:'cardio', entry:c}))]
+    .sort((a,b)=>b.date.localeCompare(a.date));
   const root=$('#historyList');
   // Se relee del DOM lo que el usuario dejó abierto. Tras un filtro no se lee:
   // ahí todo estaba abierto a la fuerza y quedaría abierto para siempre.
   if(!historyWasFiltered) $$('.history-month',root).forEach(d=>{ d.open?openMonths.add(d.dataset.month):openMonths.delete(d.dataset.month); });
-  if(!data.length){ root.innerHTML=`<p class="no-data">${t('history.noData')}</p>`; historyWasFiltered=true; return; }
+  if(!items.length){ root.innerHTML=`<p class="no-data">${t('history.noData')}</p>`; historyWasFiltered=true; return; }
   // Al filtrar se abre todo: si el usuario busca algo, quiere verlo, no cazarlo.
   const searching=!!term;
   const groups=new Map();
-  data.forEach(s=>{ const k=monthKeyOf(s.date); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(s); });
+  items.forEach(it=>{ const k=monthKeyOf(it.date); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(it); });
   if(!monthsSeeded){ const first=groups.keys().next().value; if(first) openMonths.add(first); monthsSeeded=true; }
   const nf=n=>Math.round(n).toLocaleString(dateLocale());
   root.innerHTML=[...groups].map(([key,list])=>{
-    const vol=list.reduce((tot,s)=>tot+sessionVolume(s),0);
-    const body=list.map(s=>{
+    const vol=list.filter(it=>it.kind==='strength').reduce((tot,it)=>tot+sessionVolume(it.session),0);
+    const mins=list.filter(it=>it.kind==='cardio').reduce((tot,it)=>tot+(it.entry.minutes||0),0);
+    const body=list.map(it=>{
+      if(it.kind==='cardio') return cardioCardHtml(it.entry, searching);
+      const s=it.session;
       const moves=s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${toDisplay(x.weight)}×${x.reps}`).join(' · ')}</small></div>`).join('');
       return `<details class="history-session"${searching?' open':''}><summary><div class="hs-id"><h4>${escapeHtml(s.name||t('history.unnamed'))}</h4><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><span class="hs-vol">${nf(toDisplay(sessionVolume(s)))} ${unitLabel()}</span></summary><div class="history-moves">${moves}</div><div class="hs-actions"><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></div></details>`;
     }).join('');
-    return `<details class="history-month" data-month="${key}"${searching||openMonths.has(key)?' open':''}><summary><span class="hm-name">${escapeHtml(monthLabel(key))}</span><small>${t('history.monthCount',{n:list.length})} · ${nf(toDisplay(vol))} ${unitLabel()}</small></summary><div class="history-month-body">${body}</div></details>`;
+    // El total del mes suma tonelaje y minutos por separado: son magnitudes distintas.
+    const totals=[vol?`${nf(toDisplay(vol))} ${unitLabel()}`:'', mins?t('cardio.minutes',{n:nf(mins)}):''].filter(Boolean).join(' · ');
+    return `<details class="history-month" data-month="${key}"${searching||openMonths.has(key)?' open':''}><summary><span class="hm-name">${escapeHtml(monthLabel(key))}</span><small>${t('history.monthCount',{n:list.length})}${totals?' · '+totals:''}</small></summary><div class="history-month-body">${body}</div></details>`;
   }).join('');
   historyWasFiltered=searching;
   $$('.edit-session').forEach(b=>b.onclick=()=>editSession(b.dataset.id));
+  wireCardioHistory(root);
 }
 // ¿Hay trabajo sin guardar en la sesión en curso? (cards con contenido y aún no guardada en el historial)
 function hasUnsavedSession() {
@@ -749,8 +770,8 @@ $('#clearSession').onclick=async ()=>{
 $('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='records')renderPRs();if(t.dataset.view==='config')window.renderConfig?.();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
-$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions,templates};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
-$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;if(Array.isArray(payload.templates)){templates=payload.templates;saveTemplates();}save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
+$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions,templates,cardio};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
+$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;if(Array.isArray(payload.templates)){templates=payload.templates;saveTemplates();}if(Array.isArray(payload.cardio)){cardio=payload.cardio;saveCardio();}save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
 // Recupera el borrador de la sesión en curso si se recargó/cerró sin finalizar.
 (function restoreDraft(){
   const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');

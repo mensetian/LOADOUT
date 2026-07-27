@@ -395,3 +395,33 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
   .config-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px;align-items:start}
   .config-group{margin-bottom:22px}
 }
+
+/* ==========================================================================
+   CARDIO · capturador propio y ficha en el LOG
+   ========================================================================== */
+.capture-mode{margin:0 0 16px;justify-content:flex-start}
+.capture-mode button{min-width:96px;font-size:12px}
+.cardio-panel{padding:18px 0 0}
+.cardio-form{max-width:640px;padding:20px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
+.cardio-form .section-legend{margin:0 0 6px}
+.cardio-note{margin:0 0 20px;color:var(--muted);font-size:13px;line-height:1.5}
+.cardio-fields{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:20px}
+.cardio-field{display:flex;flex-direction:column;gap:6px;flex:1 1 100%;min-width:0}
+.cardio-field.is-short{flex:1 1 140px}
+.cardio-field>span,.cardio-field-label{color:var(--muted);font:11px var(--mono);letter-spacing:.1em}
+.cardio-field input,.cardio-field textarea{width:100%;min-height:var(--tap);padding:11px 13px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--bg);color:var(--ink);font:15px Manrope,Arial,sans-serif}
+.cardio-field textarea{min-height:78px;resize:vertical;line-height:1.5}
+.cardio-field input:focus,.cardio-field textarea:focus{border-color:var(--hot);outline:none}
+.cardio-rpe-block{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.rpe-scale{display:flex;flex-wrap:wrap;gap:5px}
+.rpe-dot{min-width:40px;min-height:40px;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:500 13px var(--mono);cursor:pointer}
+.rpe-dot:hover{border-color:var(--hot);color:var(--hot)}
+/* La escala se lee de un vistazo: cuanto más duro, más "caliente" el botón activo. */
+.rpe-dot.is-active{border-color:var(--hot);background:var(--hot);color:#141414;font-weight:700}
+.rpe-label{color:var(--muted);font:11px var(--mono)}
+.cardio-actions{display:flex;flex-wrap:wrap;gap:10px}
+.cardio-actions .primary-button{flex:1 1 200px}
+/* La ficha de cardio es la misma pieza del LOG, marcada al borde para
+   distinguirla de la fuerza sin romper la lista. */
+.history-session.is-cardio{border-left:3px solid var(--hot2)}
+.hs-vol.hs-cardio{color:var(--hot2);letter-spacing:.1em}

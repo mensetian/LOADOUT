@@ -31,7 +31,7 @@ function readSnapshots() {
 function snapshot(reason) {
   try {
     const snaps = readSnapshots();
-    snaps.unshift({ at: new Date().toISOString(), reason, sessions, templates });
+    snaps.unshift({ at: new Date().toISOString(), reason, sessions, templates, cardio });
     localStorage.setItem(SNAP_KEY, JSON.stringify(snaps.slice(0, MAX_SNAPSHOTS)));
   } catch { /* sin espacio: no bloqueamos la acción del usuario */ }
   renderSnapshotStatus();
@@ -72,8 +72,9 @@ async function restoreLastSnapshot() {
   if (!ok) return;
   snapshot(t('undo.restoreReason'));
   sessions = last.sessions;
-  // Las copias viejas no llevaban plantillas: en ese caso se dejan como están.
+  // Las copias viejas no llevaban plantillas ni cardio: en ese caso se dejan como están.
   if (Array.isArray(last.templates)) { templates = last.templates; saveTemplates(); }
+  if (Array.isArray(last.cardio)) { cardio = last.cardio; saveCardio(); }
   save();
   activeSession = makeSession();
   renderActiveSession();
@@ -91,7 +92,7 @@ function renderBackupStatus() {
   const el = document.querySelector('#backupStatus');
   if (!el) return;
   const raw = localStorage.getItem(LAST_BACKUP_KEY);
-  if (!sessions.length) { el.textContent = ''; el.className = 'backup-status'; return; }
+  if (!sessions.length && !cardio.length) { el.textContent = ''; el.className = 'backup-status'; return; }
   if (!raw) {
     el.textContent = t('backup.neverWarn');
     el.className = 'backup-status is-warn';
