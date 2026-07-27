@@ -326,7 +326,7 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 }
 
 /* Fix 2 · autocompletado de nombres de ejercicio (panel propio, no el datalist) */
-.ex-namewrap{position:relative}
+.ex-namewrap,.ac-wrap{position:relative}
 .ac-panel{position:absolute;z-index:35;top:calc(100% + 5px);left:0;right:0;max-height:232px;overflow-y:auto;border:1px solid var(--hot);border-radius:6px;background:var(--panel);box-shadow:0 16px 40px rgba(0,0,0,.5)}
 .ac-option{display:block;width:100%;padding:11px 13px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);font:600 14px var(--display);letter-spacing:.02em;text-transform:uppercase;text-align:left;cursor:pointer}
 .ac-option:last-child{border-bottom:0}
@@ -425,3 +425,6 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
    distinguirla de la fuerza sin romper la lista. */
 .history-session.is-cardio{border-left:3px solid var(--hot2)}
 .hs-vol.hs-cardio{color:var(--hot2);letter-spacing:.1em}
+/* Un aviso de "todavía no hay datos" no es una casilla más: si se queda en una
+   columna de la rejilla, en móvil parece descentrado. Ocupa todo el ancho. */
+.config-stats>.no-data{grid-column:1/-1;padding:32px 16px}

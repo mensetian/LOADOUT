@@ -87,7 +87,6 @@ function renderCardioForm() {
   document.querySelector('#cardioSave').textContent = t(editing ? 'cardio.update' : 'cardio.save');
   document.querySelector('#cardioCancel').hidden = !editing;
   document.querySelector('#cardioFormTitle').textContent = t(editing ? 'cardio.editing' : 'cardio.new');
-  document.querySelector('#cardioActivities').innerHTML = cardioActivities().map(a => `<option value="${escapeHtml(a)}">`).join('');
   const dateField = document.querySelector('#cardioDate');
   if (!dateField.value) dateField.value = todayKey();   // primera pintada: hoy
   renderRpeScale();
@@ -238,7 +237,33 @@ function renderCardio() {
   renderCardioStats();
 }
 
+// --- Autocompletado de la actividad -----------------------------------------
+// El mismo panel propio que el nombre del movimiento, no un <datalist> nativo:
+// su estilo lo pone el sistema operativo y desentonaba con el resto de la app.
+function renderActivityAc() {
+  const input = document.querySelector('#cardioActivity');
+  const panel = document.querySelector('#cardioActivityPanel');
+  const term = input.value.trim().toLowerCase();
+  const items = cardioActivities().filter(a => a.toLowerCase().includes(term)).slice(0, 8);
+  // Con la única coincidencia ya escrita entera el panel no aporta nada.
+  if (!items.length || (items.length === 1 && items[0].toLowerCase() === term)) return closeActivityAc();
+  panel.innerHTML = items.map(a => `<button type="button" class="ac-option" role="option">${escapeHtml(a)}</button>`).join('');
+  panel.querySelectorAll('.ac-option').forEach(b => b.onclick = () => { input.value = b.textContent; closeActivityAc(); });
+  panel.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+}
+function closeActivityAc() {
+  document.querySelector('#cardioActivityPanel').hidden = true;
+  document.querySelector('#cardioActivity').setAttribute('aria-expanded', 'false');
+}
+
 // --- Cableado (seguro en el arranque: no llama a nada de app.js) ------------
 document.querySelectorAll('#captureMode button').forEach(b => b.onclick = () => setCaptureMode(b.dataset.mode));
+const cardioActivityInput = document.querySelector('#cardioActivity');
+cardioActivityInput.oninput = renderActivityAc;
+cardioActivityInput.onfocus = renderActivityAc;
+// El cierre se retrasa: sin margen, el blur mata el panel antes del click.
+cardioActivityInput.onblur = () => setTimeout(closeActivityAc, 150);
+cardioActivityInput.onkeydown = e => { if (e.key === 'Escape') closeActivityAc(); };
 document.querySelector('#cardioSave').onclick = saveCardioEntry;
 document.querySelector('#cardioCancel').onclick = resetCardioForm;
