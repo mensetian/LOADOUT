@@ -419,7 +419,9 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 /* La escala se lee de un vistazo: cuanto más duro, más "caliente" el botón activo. */
 .rpe-dot.is-active{border-color:var(--hot);background:var(--hot);color:#141414;font-weight:700}
 .rpe-label{color:var(--muted);font:11px var(--mono)}
-.cardio-actions{display:flex;flex-wrap:wrap;gap:10px}
+/* La nota es el último campo y no lleva margen inferior propio: la separación
+   del botón la pone aquí, con el mismo ritmo de 20px que el resto del bloque. */
+.cardio-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
 .cardio-actions .primary-button{flex:1 1 200px}
 /* La ficha de cardio es la misma pieza del LOG, marcada al borde para
    distinguirla de la fuerza sin romper la lista. */
