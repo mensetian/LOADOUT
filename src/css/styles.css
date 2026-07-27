@@ -428,3 +428,9 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 /* Un aviso de "todavía no hay datos" no es una casilla más: si se queda en una
    columna de la rejilla, en móvil parece descentrado. Ocupa todo el ancho. */
 .config-stats>.no-data{grid-column:1/-1;padding:32px 16px}
+/* Las acciones de una ficha del LOG iban pegadas: hasta ahora solo había una.
+   Con dos hace falta separarlas, y "Eliminar" no debe gritar más que el propio
+   registro: se queda en gris como el resto y solo enrojece al ir a pulsarlo. */
+.hs-actions{gap:8px}
+.hs-actions .danger-btn{border-color:#5d6364;color:var(--muted)}
+.hs-actions .danger-btn:hover{border-color:var(--red);color:#fff;background:var(--red)}
