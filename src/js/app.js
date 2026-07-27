@@ -451,10 +451,38 @@ function renderPRs() {
 function updateDashboard() {
   renderSummary(); renderHistory(); populateProgress(); renderPRs(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
 }
+// El LOG agrupa por mes y muestra cada sesión plegada: con muchas sesiones, la
+// lista expandida se volvía un muro de texto imposible de recorrer.
+const sessionVolume = s => s.exercises.reduce((tot,e)=>tot+e.sets.reduce((a,x)=>a+(x.weight||0)*(x.reps||0),0),0);
+const monthKeyOf = date => date.slice(0,7);
+const monthLabel = key => new Intl.DateTimeFormat(dateLocale(),{month:'long',year:'numeric'}).format(new Date(key+'-01T12:00'));
+// Qué meses quedan desplegados. Se conserva entre repintados para no cerrarle
+// al usuario lo que acaba de abrir cada vez que se guarda una sesión.
+const openMonths = new Set();
+let monthsSeeded = false, historyWasFiltered = false;
 function renderHistory() {
   const term=$('#historySearch').value.toLowerCase(), period=Number($('#historyPeriod').value); let data=[...sessions].sort((a,b)=>b.date.localeCompare(a.date)); if(period){const d=new Date();d.setDate(d.getDate()-period);data=data.filter(s=>new Date(s.date+'T12:00')>=d)}
   data=data.filter(s=>(s.name||'').toLowerCase().includes(term)||s.exercises.some(e=>e.name.toLowerCase().includes(term)));
-  $('#historyList').innerHTML=data.length?data.map(s=>`<article class="history-session"><header><div><h3>${escapeHtml(s.name||t('history.unnamed'))}</h3><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></header><div class="history-moves">${s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${toDisplay(x.weight)}×${x.reps}`).join(' · ')}</small></div>`).join('')}</div></article>`).join(''):`<p class="no-data">${t('history.noData')}</p>`;
+  const root=$('#historyList');
+  // Se relee del DOM lo que el usuario dejó abierto. Tras un filtro no se lee:
+  // ahí todo estaba abierto a la fuerza y quedaría abierto para siempre.
+  if(!historyWasFiltered) $$('.history-month',root).forEach(d=>{ d.open?openMonths.add(d.dataset.month):openMonths.delete(d.dataset.month); });
+  if(!data.length){ root.innerHTML=`<p class="no-data">${t('history.noData')}</p>`; historyWasFiltered=true; return; }
+  // Al filtrar se abre todo: si el usuario busca algo, quiere verlo, no cazarlo.
+  const searching=!!term;
+  const groups=new Map();
+  data.forEach(s=>{ const k=monthKeyOf(s.date); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(s); });
+  if(!monthsSeeded){ const first=groups.keys().next().value; if(first) openMonths.add(first); monthsSeeded=true; }
+  const nf=n=>Math.round(n).toLocaleString(dateLocale());
+  root.innerHTML=[...groups].map(([key,list])=>{
+    const vol=list.reduce((tot,s)=>tot+sessionVolume(s),0);
+    const body=list.map(s=>{
+      const moves=s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${toDisplay(x.weight)}×${x.reps}`).join(' · ')}</small></div>`).join('');
+      return `<details class="history-session"${searching?' open':''}><summary><div class="hs-id"><h4>${escapeHtml(s.name||t('history.unnamed'))}</h4><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><span class="hs-vol">${nf(toDisplay(sessionVolume(s)))} ${unitLabel()}</span></summary><div class="history-moves">${moves}</div><div class="hs-actions"><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></div></details>`;
+    }).join('');
+    return `<details class="history-month" data-month="${key}"${searching||openMonths.has(key)?' open':''}><summary><span class="hm-name">${escapeHtml(monthLabel(key))}</span><small>${t('history.monthCount',{n:list.length})} · ${nf(toDisplay(vol))} ${unitLabel()}</small></summary><div class="history-month-body">${body}</div></details>`;
+  }).join('');
+  historyWasFiltered=searching;
   $$('.edit-session').forEach(b=>b.onclick=()=>editSession(b.dataset.id));
 }
 // ¿Hay trabajo sin guardar en la sesión en curso? (cards con contenido y aún no guardada en el historial)
