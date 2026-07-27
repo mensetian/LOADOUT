@@ -606,7 +606,7 @@ const I18N = {
     'cardio.note': 'Anything that leaves you out of breath: skating, cycling, running, swimming. It counts towards your consistency, not your tonnage.',
     'cardio.activity': 'ACTIVITY',
     'cardio.activityPlaceholder': 'E.g. Skateboarding',
-    'cardio.defaults': 'Skateboarding|Dancing|Cycling|Running|Walking|Swimming',
+    'cardio.defaults': 'Skateboarding|Rumba|Cycling|Running|Walking|Swimming',
     'cardio.duration': 'DURATION (MIN)',
     'cardio.date': 'DATE',
     'cardio.rpe': 'PERCEIVED EFFORT',
