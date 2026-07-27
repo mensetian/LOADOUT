@@ -461,6 +461,9 @@ function updateDashboard() {
 // lista expandida se volvía un muro de texto imposible de recorrer.
 const sessionVolume = s => s.exercises.reduce((tot,e)=>tot+e.sets.reduce((a,x)=>a+(x.weight||0)*(x.reps||0),0),0);
 const monthKeyOf = date => date.slice(0,7);
+// "1 sesiones" se lee mal. Cuando hay un solo elemento se usa la variante en
+// singular de la clave (misma clave + '1'), que cada idioma redacta a su manera.
+const countLabel = (key,n) => t(n===1 ? `${key}1` : key, {n});
 const monthLabel = key => new Intl.DateTimeFormat(dateLocale(),{month:'long',year:'numeric'}).format(new Date(key+'-01T12:00'));
 // Qué meses quedan desplegados. Se conserva entre repintados para no cerrarle
 // al usuario lo que acaba de abrir cada vez que se guarda una sesión.
@@ -496,11 +499,11 @@ function renderHistory() {
       if(it.kind==='cardio') return cardioCardHtml(it.entry, searching);
       const s=it.session;
       const moves=s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${toDisplay(x.weight)}×${x.reps}`).join(' · ')}</small></div>`).join('');
-      return `<details class="history-session"${searching?' open':''}><summary><div class="hs-id"><h4>${escapeHtml(s.name||t('history.unnamed'))}</h4><time>${dateFmt(s.date)} · ${t('history.movesCount',{n:s.exercises.length})}</time></div><span class="hs-vol">${nf(toDisplay(sessionVolume(s)))} ${unitLabel()}</span></summary><div class="history-moves">${moves}</div><div class="hs-actions"><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></div></details>`;
+      return `<details class="history-session"${searching?' open':''}><summary><div class="hs-id"><h4>${escapeHtml(s.name||t('history.unnamed'))}</h4><time>${dateFmt(s.date)} · ${countLabel('history.movesCount',s.exercises.length)}</time></div><span class="hs-vol">${nf(toDisplay(sessionVolume(s)))} ${unitLabel()}</span></summary><div class="history-moves">${moves}</div><div class="hs-actions"><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></div></details>`;
     }).join('');
     // El total del mes suma tonelaje y minutos por separado: son magnitudes distintas.
     const totals=[vol?`${nf(toDisplay(vol))} ${unitLabel()}`:'', mins?t('cardio.minutes',{n:nf(mins)}):''].filter(Boolean).join(' · ');
-    return `<details class="history-month" data-month="${key}"${searching||openMonths.has(key)?' open':''}><summary><span class="hm-name">${escapeHtml(monthLabel(key))}</span><small>${t('history.monthCount',{n:list.length})}${totals?' · '+totals:''}</small></summary><div class="history-month-body">${body}</div></details>`;
+    return `<details class="history-month" data-month="${key}"${searching||openMonths.has(key)?' open':''}><summary><span class="hm-name">${escapeHtml(monthLabel(key))}</span><small>${countLabel('history.monthCount',list.length)}${totals?' · '+totals:''}</small></summary><div class="history-month-body">${body}</div></details>`;
   }).join('');
   historyWasFiltered=searching;
   $$('.edit-session').forEach(b=>b.onclick=()=>editSession(b.dataset.id));
