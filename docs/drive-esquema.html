@@ -255,6 +255,7 @@
         <tr><td>Refresh token</td><td>En tu dispositivo</td><td>Es tuyo, no de la app. Por eso el worker no necesita base de datos.</td></tr>
         <tr><td>Access token</td><td>En tu dispositivo</td><td>Caduca solo en 1 hora, así que su exposición es limitada por diseño.</td></tr>
         <tr><td>Tus entrenamientos</td><td>Tu navegador y tu Drive</td><td>No pasan por el worker en ningún momento: la app habla directo con Drive.</td></tr>
+        <tr><td>Lápidas de borrado</td><td>Junto al respaldo</td><td>Solo un id y una fecha; es lo que impide que un borrado se deshaga solo.</td></tr>
       </tbody>
     </table>
   </div>
@@ -269,11 +270,29 @@
 </section>
 
 <section>
+  <h2>Borrados</h2>
+  <h3>Por qué un borrado deja una lápida</h3>
+  <p>Si la fusión une por id, borrar y ya está no funciona: el otro dispositivo todavía tiene la sesión, y la siguiente unión la devuelve a la vida. Por eso borrar no quita el registro y nada más, sino que además <strong>anota que se borró y cuándo</strong>. Esa marca viaja a Drive y el otro dispositivo la obedece.</p>
+  <p>El desempate importa: si la entrada se editó <em>después</em> de la lápida, gana la edición. Así volver a crear algo nunca queda enterrado por un borrado antiguo. Las lápidas caducan a los 180 días para que el archivo no crezca sin fin.</p>
+</section>
+
+<section>
+  <h2>Cadencia</h2>
+  <h3>Cuándo sincroniza sola</h3>
+  <ul class="notes">
+    <li><strong>Al abrir la app y al volver a ella.</strong> Cambiar de pestaña o desbloquear el móvil dispara una unión, con un margen de 90 segundos para no repetirla sin motivo.</li>
+    <li><strong>Mientras entrenas.</strong> Unos dos minutos después del último cambio, para que cerrar el navegador a media rutina no se lleve las series por delante.</li>
+    <li><strong>Al terminar un entrenamiento</strong> y al pulsar «Sincronizar» a mano.</li>
+    <li><strong>Ninguna abre una ventana de Google.</strong> Si el permiso no se puede renovar en silencio, la subida se deja para la próxima vez en lugar de interrumpirte.</li>
+  </ul>
+</section>
+
+<section>
   <h2>Límites</h2>
   <h3>Lo que sigue sin hacer</h3>
   <ul class="notes">
-    <li><strong>No propaga borrados.</strong> Si borras una sesión aquí pero sigue en Drive, la próxima fusión la revive. Para eliminarla de verdad, usa «Forzar restaurar» en el otro dispositivo.</li>
-    <li><strong>No es en vivo.</strong> La unión ocurre al terminar un entrenamiento o al pulsar el botón, no continuamente.</li>
+    <li><strong>No es en vivo.</strong> Si entrenas en dos aparatos a la vez, cada uno verá lo del otro en la siguiente sincronización, no al instante.</li>
+    <li><strong>Nunca pisa lo que tengas abierto.</strong> El entrenamiento en curso que venga de Drive solo se adopta si aquí no hay nada a medias. Es deliberado.</li>
     <li><strong>Cada dispositivo se conecta una vez.</strong> El refresh token es de este navegador; en el móvil habrá que autorizar de nuevo, una sola vez.</li>
     <li class="warn"><strong>Si revocas el acceso</strong> desde tu cuenta de Google, la llave deja de servir y la app volverá a pedir permiso. Es el comportamiento correcto.</li>
   </ul>

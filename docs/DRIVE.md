@@ -67,13 +67,24 @@ Consecuencia práctica: **puedes entrenar en el móvil y en el PC sin miedo**. L
 sincronización de cada uno recoge lo del otro. Ya no hace falta "restaurar antes de
 entrenar".
 
-Dos matices honestos:
+### Los borrados también viajan
 
-- **No propaga borrados.** Si borras una sesión en un dispositivo pero sigue en Drive, la
-  siguiente fusión la revive. Para eliminarla de verdad, bórrala y luego usa
-  **Forzar restaurar** en el otro dispositivo, o bórrala en ambos.
-- **No es tiempo real.** La unión ocurre al sincronizar (al terminar sesión o al pulsar el
-  botón), no continuamente.
+Borrar por las buenas no bastaba: el otro dispositivo aún tenía la sesión y la siguiente
+fusión la revivía. Ahora cada borrado deja una **lápida** (`{id: cuándo}`) que se sube con
+el respaldo y dice "esto ya no existe". La regla de desempate es que si la entrada se editó
+**después** de la lápida, gana la edición, así que volver a crear algo nunca queda
+enterrado por un borrado viejo. Las lápidas se olvidan solas a los 180 días.
+
+### Cuándo sincroniza
+
+- Al **abrir la app** y cada vez que **vuelves a ella** (cambiar de pestaña, desbloquear el
+  móvil), con un margen de 90 segundos para no repetir sin motivo.
+- **Mientras entrenas**, unos dos minutos después del último cambio, para que cerrar el
+  navegador a media rutina no se lleve las series por delante.
+- Al **terminar** un entrenamiento y al pulsar **Sincronizar**.
+
+Ninguna de las automáticas abre nunca una ventana de Google: si el permiso no se puede
+renovar en silencio, la subida se deja para la próxima vez.
 
 ## Conexión permanente (worker de Cloudflare)
 
@@ -139,10 +150,11 @@ No hubo conexión al abrir la app y la librería de Google no se descargó. Reca
   limitación desaparece: ver la sección de conexión permanente). Al reabrir la app, si ya autorizaste antes en ese
   dispositivo, se **reconecta sola sin popup** (mientras tu sesión de Google siga activa); el
   chip del header lo refleja. Solo si esa reconexión silenciosa falla hay que tocar el chip.
-- El respaldo se sube **al terminar una sesión**, no en cada tecla. Si cierras el navegador a
-  media sesión, esos datos aún no están en Drive.
-- **No es en vivo.** La fusión ocurre al sincronizar, no de forma continua. Y no propaga
-  borrados (ver la sección de fusión arriba).
+- **No es en vivo.** La fusión ocurre en los momentos listados arriba, no de forma continua:
+  si entrenas en dos aparatos *a la vez*, cada uno verá lo del otro en la siguiente
+  sincronización, no al instante.
+- El entrenamiento en curso **solo se adopta si aquí no hay nada a medias**. Es deliberado:
+  la sincronización nunca pisa series que estés anotando en este momento.
 - El Client ID queda visible en el código. Es normal y no es un secreto: los clientes OAuth
   de aplicaciones web son públicos por diseño, y los orígenes autorizados impiden que
   alguien lo use desde otro sitio.

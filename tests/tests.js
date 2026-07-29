@@ -318,6 +318,42 @@ function run(frameWindow) {
       w.setCardio([card('1', '2026-01-01', 'Patineta', 60, '2026-01-01T00:00:00.000Z')]);
       equal(w.cardioStats().avgRpe, null, 'no debe inventar un 0/10');
     });
+
+    group('BORRADOS (lápidas)');
+
+    // Mismo criterio que sessionStamp() en drive.js: sin sello de edición vale
+    // la fecha del entrenamiento.
+    const stampOf = s => s.updatedAt || `${s.date}T00:00:00.000Z`;
+    const recent = new Date(Date.now() - 86400000).toISOString();   // ayer
+    const older = new Date(Date.now() - 172800000).toISOString();   // anteayer
+
+    test('une lápidas quedándose con la marca más reciente', () => {
+      const merged = w.mergeDeleted({ a: older }, { a: recent, b: recent });
+      equal(merged.a, recent, 'debe ganar la marca más nueva');
+      equal(Object.keys(merged).sort(), ['a', 'b'], 'debe conservar las de ambos lados');
+    });
+
+    test('olvida las lápidas demasiado viejas', () => {
+      const merged = w.mergeDeleted({ vieja: '2020-01-01T00:00:00.000Z' }, {});
+      equal(Object.keys(merged), [], 'una lápida caducada no debe seguir ocupando sitio');
+    });
+
+    test('una sesión borrada no revive al fusionar', () => {
+      const list = [session('a', '2026-01-01'), session('b', '2026-01-02')];
+      const kept = w.applyDeleted(list, stampOf, { a: recent });
+      equal(kept.map(s => s.id), ['b'], 'la sesión con lápida debe desaparecer');
+    });
+
+    test('si se editó después del borrado, gana la edición', () => {
+      const list = [session('a', '2026-01-01', new Date().toISOString())];
+      const kept = w.applyDeleted(list, stampOf, { a: older });
+      equal(kept.length, 1, 'una lápida vieja no debe enterrar una edición nueva');
+    });
+
+    test('sin lápidas no toca nada', () => {
+      const list = [session('a', '2026-01-01'), session('b', '2026-01-02')];
+      equal(w.applyDeleted(list, stampOf, {}).length, 2, 'no debe descartar nada');
+    });
   } finally {
     w.setSessions(realSessions);
     w.setTemplates(realTemplates);

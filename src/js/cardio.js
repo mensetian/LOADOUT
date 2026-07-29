@@ -137,6 +137,7 @@ async function deleteCardio(id) {
   const c = cardio.find(x => x.id === id);
   if (!c) return;
   if (!(await showConfirm(t('cardio.deleteConfirm', { activity: c.activity }), { danger: true, okText: t('cardio.deleteOk') }))) return;
+  window.markDeleted?.(id); // deja constancia para que la fusión no la reviva
   cardio = cardio.filter(x => x.id !== id);
   saveCardio();
   if (editingCardioId === id) resetCardioForm();

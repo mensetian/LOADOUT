@@ -30,6 +30,48 @@ let sessions = JSON.parse(localStorage.getItem(KEY) || '[]');
 let activeSession = null;
 let restoring = false; // evita reescribir el borrador mientras se pinta la sesión
 const save = () => localStorage.setItem(KEY, JSON.stringify(sessions));
+
+// --- Borrados (lápidas) -----------------------------------------------------
+// La fusión une por id, así que borrar y ya está no basta: el otro dispositivo
+// aún la tiene y la siguiente fusión la revive. Por eso un borrado deja una
+// "lápida" ({id: cuándo}) que sí viaja a Drive y dice "esto ya no existe".
+//
+// Si la entrada se editó DESPUÉS de la lápida, gana la edición: así volver a
+// crear algo con el mismo id nunca queda enterrado por un borrado viejo.
+const DELETED_KEY = 'loadout-deleted-v1';
+const DELETED_TTL_DAYS = 180; // pasado ese plazo la lápida ya cumplió su función
+let deletedIds = {};
+try {
+  const raw = JSON.parse(localStorage.getItem(DELETED_KEY) || '{}');
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) deletedIds = raw;
+} catch {}
+const saveDeleted = () => localStorage.setItem(DELETED_KEY, JSON.stringify(deletedIds));
+
+function markDeleted(...ids) {
+  const now = new Date().toISOString();
+  for (const id of ids) if (id) deletedIds[id] = now;
+  saveDeleted();
+}
+
+// Une dos juegos de lápidas quedándose con la marca más reciente de cada id, y
+// descarta las que ya son demasiado viejas para que el archivo no crezca sin fin.
+function mergeDeleted(local = {}, remote = {}) {
+  const limit = new Date(Date.now() - DELETED_TTL_DAYS * 86400000).toISOString();
+  const out = {};
+  for (const [id, at] of [...Object.entries(remote), ...Object.entries(local)]) {
+    if (typeof at !== 'string' || at < limit) continue;
+    if (!out[id] || at > out[id]) out[id] = at;
+  }
+  return out;
+}
+
+// Quita de una lista lo que tenga una lápida posterior a su última edición.
+function applyDeleted(list, stampOf, tombs = deletedIds) {
+  return (list || []).filter(x => {
+    const at = x?.id && tombs[x.id];
+    return !at || stampOf(x) > at;
+  });
+}
 // Lee un número aceptando coma o punto como separador decimal (teclados/locales ES).
 const num = v => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 
@@ -87,8 +129,36 @@ function collectDraft() {
   return { ...activeSession, name: $('#sessionName').value, date: $('#sessionDate').value || activeSession?.date, exercises, _draft: true, _unit: unit() };
 }
 function draftHasContent(d) { return !!d && Array.isArray(d.exercises) && d.exercises.some(e => (e.name || '').trim() || e.sets?.some(s => s.weight || s.reps)); }
-function saveDraft() { if (restoring || !activeSession) return; localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraft())); renderLiveSummary(); }
+function saveDraft() {
+  if (restoring || !activeSession) return;
+  localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...collectDraft(), _savedAt: new Date().toISOString() }));
+  renderLiveSummary();
+  window.driveDraftChanged?.(); // sube el entrenamiento en curso, sin esperar al final
+}
 function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
+const readDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { return null; } };
+// ¿Hay un entrenamiento abierto ahora mismo en pantalla? Lo consulta la fusión
+// antes de reiniciar la captura, para no borrar series a medio anotar.
+const draftInProgress = () => { try { return !!activeSession && draftHasContent(collectDraft()); } catch { return false; } };
+
+// Reconcilia el entrenamiento en curso con el que venga de Drive. Regla dura:
+// nunca pisa trabajo que esté abierto aquí; solo rellena cuando este dispositivo
+// no tiene nada a medias. Devuelve true si cambió algo.
+function syncDraft(remote) {
+  const local = readDraft();
+  // Se terminó en otro dispositivo: el borrador de aquí ya es historia.
+  if (local?.id && sessions.some(s => s.id === local.id)) {
+    clearDraft();
+    if (activeSession?.id === local.id) { activeSession = makeSession(); renderActiveSession(); }
+    return true;
+  }
+  if (!draftHasContent(remote) || draftHasContent(local)) return false;
+  if (local?._savedAt && remote._savedAt && remote._savedAt <= local._savedAt) return false;
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(remote));
+  activeSession = remote;
+  renderActiveSession();
+  return true;
+}
 const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d+'T12:00'));
 // Fecha local (no UTC): con toISOString por la noche saltaba al día siguiente.
 const keyOf = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -219,6 +289,7 @@ function renderOnboarding() {
 async function deleteTemplate(id) {
   const tpl=templates.find(x=>x.id===id); if(!tpl) return;
   if(!(await showConfirm(t('template.deleteConfirm',{name:tpl.name}), {danger:true, okText:t('template.deleteOk')}))) return;
+  markDeleted(id);
   templates=templates.filter(x=>x.id!==id);
   saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.();
 }
@@ -825,11 +896,11 @@ $('#clearSession').onclick=async ()=>{
   if(!(await showConfirm(t('session.clearConfirm'), {danger:true, okText:t('session.clearOk')})))return;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false; saveDraft();
 };
-$('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();}};
+$('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));markDeleted(activeSession.id);sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();window.driveAutoSync?.();}};
 $$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='records')renderPRs();if(t.dataset.view==='config')window.renderConfig?.();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
-$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions,templates,cardio};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
-$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));sessions=payload.sessions;if(Array.isArray(payload.templates)){templates=payload.templates;saveTemplates();}if(Array.isArray(payload.cardio)){cardio=payload.cardio;saveCardio();}save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
+$('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions,templates,cardio,deleted:deletedIds};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
+$('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));deletedIds=mergeDeleted(deletedIds,payload.deleted);saveDeleted();sessions=payload.sessions;if(Array.isArray(payload.templates)){templates=payload.templates;saveTemplates();}if(Array.isArray(payload.cardio)){cardio=payload.cardio;saveCardio();}save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
 // Recupera el borrador de la sesión en curso si se recargó/cerró sin finalizar.
 (function restoreDraft(){
   const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');
@@ -845,6 +916,8 @@ if('serviceWorker' in navigator && location.protocol!=='file:')navigator.service
 // mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
 window.LOADOUT_TEST = {
   e1rm, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender,
+  mergeDeleted, applyDeleted,
   getSessions: () => sessions, setSessions: v => { sessions = v; },
   getTemplates: () => templates, setTemplates: v => { templates = v; },
+  getDeleted: () => deletedIds, setDeleted: v => { deletedIds = v; },
 };

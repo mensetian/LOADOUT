@@ -179,8 +179,9 @@ function initDrive() {
     // aún no vence; si ya venció y hay refresh token, se renueva con el worker.
     driveToken = restoreDriveToken();
     if (!driveToken) await refreshDriveToken();
-    if (driveToken) setDriveStatus(t('drive.connected'), 'is-ok');
-    else setDriveStatus(t('drive.notConnected'));
+    if (!driveToken) return setDriveStatus(t('drive.notConnected'));
+    setDriveStatus(t('drive.connected'), 'is-ok');
+    driveAutoSync(); // trae de una vez lo que se haya entrenado en otro aparato
   };
   script.onerror = () => setDriveStatus(t('drive.offline'), 'is-warn');
   document.head.append(script);
@@ -212,6 +213,16 @@ function driveHeaders(extra = {}) {
   return { Authorization: `Bearer ${driveToken}`, ...extra };
 }
 
+// Las sincronizaciones que no nacen de un toque (al volver a la app, mientras
+// entrenas) nunca deben abrir un popup: aparecería sin que nadie lo haya pedido,
+// y a media serie es lo último que quieres ver. Con esto en alto, si el token no
+// se puede renovar en silencio la operación simplemente se deja para más tarde.
+let driveNoPopup = false;
+async function inBackground(action) {
+  driveNoPopup = true;
+  try { return await action(); } finally { driveNoPopup = false; }
+}
+
 // Un 401 significa que el token expiró: lo descartamos y reintentamos una vez.
 // Con worker, la renovación es silenciosa; sin él (o si falla), abre el popup.
 async function driveExpired(response, retry) {
@@ -219,6 +230,7 @@ async function driveExpired(response, retry) {
   driveToken = null;
   localStorage.removeItem(DRIVE_TOKEN_KEY);
   if (await refreshDriveToken()) { retry?.(); return true; }
+  if (driveNoPopup) return true; // se reintentará al volver a la app
   drivePendingAction = retry;
   requestDriveAuth();
   return true;
@@ -226,7 +238,10 @@ async function driveExpired(response, retry) {
 
 // --- Guardar ----------------------------------------------------------------
 async function driveSave({ silent = false } = {}) {
-  const body = JSON.stringify({ app: 'LOADOUT', version: 1, exportedAt: new Date().toISOString(), sessions, templates, cardio }, null, 2);
+  // `deleted` lleva las lápidas y `draft` el entrenamiento aún sin terminar, para
+  // que un móvil que se quede sin batería no se lleve la sesión por delante.
+  const body = JSON.stringify({ app: 'LOADOUT', version: 1, exportedAt: new Date().toISOString(),
+    sessions, templates, cardio, deleted: deletedIds, draft: readDraft() }, null, 2);
   const fileId = localStorage.getItem(DRIVE_FILE_KEY);
   setDriveStatus(t('drive.saving'));
 
@@ -314,8 +329,9 @@ function adoptSessions(merged, reason) {
   snapshot(reason);
   sessions = merged;
   save();
-  activeSession = makeSession();
-  renderActiveSession();
+  // Ahora se sincroniza también a media sesión, así que esto puede caer mientras
+  // entrenas: reiniciar la captura aquí te borraría las series de la pantalla.
+  if (!draftInProgress()) { activeSession = makeSession(); renderActiveSession(); }
   updateDashboard();
 }
 
@@ -335,26 +351,34 @@ async function driveSync({ silent, retry }) {
       if (!silent) setDriveStatus(t('drive.unreadable'), 'is-warn');
       return;
     }
-    const merged = mergeSessions(sessions, payload.sessions);
+    // Primero se juntan las lápidas de ambos lados: hay que saber qué se borró
+    // en cualquier dispositivo ANTES de decidir qué sobrevive a la fusión.
+    deletedIds = mergeDeleted(deletedIds, payload.deleted);
+    saveDeleted();
+
+    const merged = applyDeleted(mergeSessions(sessions, payload.sessions), sessionStamp);
     if (!sameSessions(merged, sessions)) {
       adoptSessions(merged, t('drive.syncReason'));
       combined = true;
     }
     // Las plantillas se fusionan aparte, por su propio id.
-    const mergedTemplates = mergeTemplates(templates, payload.templates);
+    const stampOf = x => x.updatedAt || '';
+    const mergedTemplates = applyDeleted(mergeTemplates(templates, payload.templates), stampOf);
     if (JSON.stringify(mergedTemplates) !== JSON.stringify(templates)) {
       templates = mergedTemplates;
       saveTemplates();
       window.renderConfig?.();
     }
     // Y el cardio igual: su propia lista, su propia fusión por id.
-    const mergedCardio = mergeCardio(cardio, payload.cardio);
+    const mergedCardio = applyDeleted(mergeCardio(cardio, payload.cardio), stampOf);
     if (JSON.stringify(mergedCardio) !== JSON.stringify(cardio)) {
       cardio = mergedCardio;
       saveCardio();
       updateDashboard();
       combined = true;
     }
+    // Y por último el entrenamiento en curso, que nunca pisa lo que haya abierto aquí.
+    if (syncDraft(payload.draft)) combined = true;
   }
 
   await driveSave({ silent: true }); // sube la unión ya reconciliada
@@ -401,8 +425,38 @@ async function driveRestore() {
 // Nunca abre popup: si no hay token ni renovación silenciosa, simplemente no sube.
 async function driveAutoSync() {
   if (!driveEnabled()) return;
-  if (!driveToken && !(await refreshDriveToken())) return;
-  driveSync({ silent: true, retry: driveAutoSync }).catch(() => {});
+  return inBackground(async () => {
+    if (!driveToken && !(await refreshDriveToken())) return;
+    lastAutoSync = Date.now();
+    await driveSync({ silent: true, retry: driveAutoSync }).catch(() => {});
+  });
+}
+
+// --- Sincronizar al volver a la app -----------------------------------------
+// Antes solo se sincronizaba al terminar un entrenamiento o pulsando el botón,
+// así que abrir el móvil en el gimnasio mostraba datos viejos hasta que te
+// acordabas de tocar el chip. Ahora basta con volver a la app.
+const AUTO_SYNC_GAP = 90_000; // margen para no repetir en cada cambio de pestaña
+let lastAutoSync = 0;
+function syncOnReturn() {
+  if (document.visibilityState !== 'visible') return;
+  if (Date.now() - lastAutoSync < AUTO_SYNC_GAP) return;
+  driveAutoSync();
+}
+document.addEventListener('visibilitychange', syncOnReturn);
+window.addEventListener('focus', syncOnReturn);
+
+// --- Subida del entrenamiento en curso ---------------------------------------
+// El respaldo esperaba a que terminaras: cerrar el navegador a media rutina
+// dejaba esas series solo en este aparato. Ahora se suben también a medias, con
+// retraso para no mandar una petición por cada tecla.
+// Sube fusionando (no a secas): si otro aparato dejó algo en Drive que este aún
+// no tiene, un guardado directo lo borraría del respaldo.
+const DRAFT_UPLOAD_DELAY = 120_000;
+let draftUploadTimer = null;
+function driveDraftChanged() {
+  if (!driveEnabled() || draftUploadTimer) return;
+  draftUploadTimer = setTimeout(() => { draftUploadTimer = null; driveAutoSync(); }, DRAFT_UPLOAD_DELAY);
 }
 
 // --- Arranque ---------------------------------------------------------------
