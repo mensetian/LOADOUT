@@ -71,6 +71,36 @@ Dos matices honestos:
 - **No es tiempo real.** La unión ocurre al sincronizar (al terminar sesión o al pulsar el
   botón), no continuamente.
 
+## Conexión permanente (worker de Cloudflare)
+
+Sin servidor, Google no entrega *refresh tokens* y el permiso dura ~1 hora. El worker de
+[worker/drive-auth.js](../worker/drive-auth.js) arregla eso: custodia el *client secret* y
+renueva los tokens, así que **se inicia sesión una sola vez por dispositivo**. No guarda
+datos de nadie (el refresh token vive en cada dispositivo), soporta cualquier cantidad de
+usuarios y la capa gratuita de Cloudflare sobra.
+
+Pasos (una sola vez, ~10 minutos):
+
+1. Crea una cuenta gratis en **https://dash.cloudflare.com**.
+2. Menú **Workers & Pages → Create → Create Worker** → nómbralo `loadout-auth` → *Deploy*.
+3. Botón **Edit code** → borra el código de ejemplo, pega el contenido completo de
+   `worker/drive-auth.js` → *Deploy*.
+4. Consigue el **client secret**: Google Cloud Console → **APIs y servicios → Credenciales**
+   → clic en tu ID de cliente OAuth → copia el **Secreto del cliente** (`GOCSPX-...`).
+5. En el worker: **Settings → Variables and Secrets → Add**:
+   - `GOOGLE_CLIENT_ID` (tipo *Text*): el mismo Client ID de `config.js`.
+   - `GOOGLE_CLIENT_SECRET` (tipo **Secret**): el secreto del paso 4.
+   Guarda y vuelve a *Deploy* si lo pide.
+6. Copia la URL del worker (`https://loadout-auth.<tu-subdominio>.workers.dev`) y pégala en
+   `src/js/config.js`:
+   ```js
+   const DRIVE_AUTH_URL = 'https://loadout-auth.tuusuario.workers.dev';
+   ```
+7. Commit y push. Requisito ya cumplido si la app está **publicada** en Google Console
+   (en modo *Testing* los refresh tokens caducan a los 7 días).
+
+Si `DRIVE_AUTH_URL` queda vacío, la app usa el flujo antiguo (~1 hora por sesión).
+
 ## Si algo falla
 
 **`Error 403: access_denied` — "has not completed the Google verification process"**
@@ -79,6 +109,13 @@ Ve a https://console.cloud.google.com/auth/audience y o bien **PUBLICAR APLICACI
 añade ese correo en **Usuarios de prueba**. Cuidado: tiene que ser **la misma cuenta** que
 usa el popup de Google; si el navegador está logueado con otra (la del trabajo, por ejemplo),
 añadir la personal no sirve.
+
+**Con el worker configurado, la sesión sigue caducando a la hora**
+No llegó el *refresh token*. Google solo lo entrega en el primer consentimiento de cada
+cuenta, por eso la app pide `prompt: 'consent'`. Si aun así falla, revoca el acceso en
+**https://myaccount.google.com/permissions** (busca LOADOUT → *Quitar acceso*) y vuelve a
+conectar: será un consentimiento nuevo. En la consola del navegador aparece el aviso
+"Drive: sin refresh token".
 
 **`Error 400: redirect_uri_mismatch` o "origin not allowed"**
 El origen no coincide. En *Credenciales → tu ID de cliente → Orígenes autorizados de
@@ -94,7 +131,8 @@ No hubo conexión al abrir la app y la librería de Google no se descargó. Reca
 
 ## Limitaciones honestas
 
-- El permiso dura **~1 hora** por sesión. Al reabrir la app, si ya autorizaste antes en ese
+- Sin el worker, el permiso dura **~1 hora** por sesión (con el worker configurado esta
+  limitación desaparece: ver la sección de conexión permanente). Al reabrir la app, si ya autorizaste antes en ese
   dispositivo, se **reconecta sola sin popup** (mientras tu sesión de Google siga activa); el
   chip del header lo refleja. Solo si esa reconexión silenciosa falla hay que tocar el chip.
 - El respaldo se sube **al terminar una sesión**, no en cada tecla. Si cierras el navegador a

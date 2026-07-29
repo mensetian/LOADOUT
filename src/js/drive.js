@@ -15,6 +15,7 @@ const DRIVE_FILE_NAME = 'loadout-respaldo.json';
 
 let driveToken = null;
 let driveTokenClient = null;
+let driveCodeClient = null; // flujo con worker (conexión permanente)
 let drivePendingAction = null;
 let driveSilent = false; // true mientras se intenta la reconexión sin popup
 
@@ -22,6 +23,67 @@ const driveEnabled = () => typeof GOOGLE_CLIENT_ID === 'string' && GOOGLE_CLIENT
 // Recuerda si este dispositivo ya autorizó alguna vez, para intentar reconectar
 // en silencio al abrir la app (sin popup) las próximas veces.
 const DRIVE_LINKED_KEY = 'loadout-drive-linked';
+// El token dura ~1 hora: guardado con su vencimiento, una recarga dentro de esa
+// hora reutiliza el token y la conexión persiste sin popup.
+const DRIVE_TOKEN_KEY = 'loadout-drive-token';
+
+function storeDriveToken(token, expiresIn) {
+  // 1 minuto de margen para no usar un token a punto de vencer.
+  const expiresAt = Date.now() + ((Number(expiresIn) || 3600) - 60) * 1000;
+  try { localStorage.setItem(DRIVE_TOKEN_KEY, JSON.stringify({ token, expiresAt })); } catch {}
+}
+
+function restoreDriveToken() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DRIVE_TOKEN_KEY));
+    if (saved?.token && saved.expiresAt > Date.now()) return saved.token;
+  } catch {}
+  localStorage.removeItem(DRIVE_TOKEN_KEY);
+  return null;
+}
+
+// --- Conexión permanente vía worker (ver worker/drive-auth.js) --------------
+// Con el worker configurado, la primera autorización entrega un refresh token
+// que se guarda en este dispositivo. Desde ahí, los tokens de 1 hora se
+// renuevan solos y sin popup: se inicia sesión una sola vez por dispositivo.
+const DRIVE_REFRESH_KEY = 'loadout-drive-refresh';
+const driveAuthUrl = () =>
+  (typeof DRIVE_AUTH_URL === 'string' ? DRIVE_AUTH_URL.trim().replace(/\/$/, '') : '');
+
+function adoptDriveToken(data) {
+  driveToken = data.access_token;
+  storeDriveToken(driveToken, data.expires_in);
+  // Google solo manda el refresh token en la primera autorización: no pisarlo.
+  if (data.refresh_token) localStorage.setItem(DRIVE_REFRESH_KEY, data.refresh_token);
+  localStorage.setItem(DRIVE_LINKED_KEY, '1');
+}
+
+// Renueva el access token con el worker, sin popup. true = quedó listo.
+async function refreshDriveToken() {
+  const refresh = localStorage.getItem(DRIVE_REFRESH_KEY);
+  if (!refresh || !driveAuthUrl()) return false;
+  try {
+    const response = await fetch(`${driveAuthUrl()}/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.access_token) {
+      // invalid_grant = el usuario revocó el acceso: toca autorizar de nuevo.
+      if (data.error === 'invalid_grant') localStorage.removeItem(DRIVE_REFRESH_KEY);
+      return false;
+    }
+    adoptDriveToken(data);
+    return true;
+  } catch { return false; } // sin red: se queda como estaba
+}
+
+// Abre el popup de Google con el flujo que esté activo.
+function requestDriveAuth() {
+  if (driveCodeClient) driveCodeClient.requestCode();
+  else driveTokenClient.requestAccessToken();
+}
 
 // Etiqueta corta para el chip del header según el estado.
 const CHIP = {
@@ -60,40 +122,90 @@ function initDrive() {
   script.src = 'https://accounts.google.com/gsi/client';
   script.async = true;
   script.defer = true;
-  script.onload = () => {
-    driveTokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: DRIVE_SCOPE,
-      callback: response => {
-        if (response.error) {
-          // Falló la reconexión silenciosa: no es un error visible, solo pide tocar.
-          if (driveSilent) { driveSilent = false; setDriveStatus(t('drive.reconnectFail')); return; }
-          return setDriveStatus(t('drive.authFail'), 'is-warn');
-        }
-        driveToken = response.access_token;
-        localStorage.setItem(DRIVE_LINKED_KEY, '1');
-        driveSilent = false;
-        const action = drivePendingAction;
-        drivePendingAction = null;
-        if (action) action(); else setDriveStatus(t('drive.connected'), 'is-ok');
-      },
-    });
-    // Sin servidor no hay refresh token, así que reconectar en el arranque abría
-    // el popup de Google en cada recarga (molesto). Mejor esperar a que el
-    // usuario toque el chip / Sincronizar para pedir el token.
-    setDriveStatus(t('drive.notConnected'));
+  script.onload = async () => {
+    if (driveAuthUrl()) {
+      // Flujo con worker: la autorización devuelve un código que el worker
+      // cambia por tokens (incluido el refresh token que hace todo permanente).
+      driveCodeClient = google.accounts.oauth2.initCodeClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        ux_mode: 'popup',
+        // Google solo entrega el refresh token en el primer consentimiento. Si
+        // la cuenta ya había autorizado la app, sin esto no llegaría ninguno y
+        // la conexión volvería a durar una hora. Solo se ve al conectar.
+        prompt: 'consent',
+        callback: async response => {
+          if (response.error) return setDriveStatus(t('drive.authFail'), 'is-warn');
+          try {
+            const r = await fetch(`${driveAuthUrl()}/exchange`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: response.code }),
+            });
+            const data = await r.json();
+            if (!r.ok || !data.access_token) throw new Error(data.error || `HTTP ${r.status}`);
+            adoptDriveToken(data);
+            // Sin refresh token la conexión seguiría caducando en una hora: se
+            // avisa en vez de aparentar que quedó permanente.
+            if (!localStorage.getItem(DRIVE_REFRESH_KEY)) console.warn('Drive: sin refresh token; la sesión durará ~1 hora.');
+            const action = drivePendingAction;
+            drivePendingAction = null;
+            if (action) action(); else setDriveStatus(t('drive.connected'), 'is-ok');
+          } catch {
+            setDriveStatus(t('drive.authFail'), 'is-warn');
+          }
+        },
+      });
+    } else {
+      // Flujo antiguo sin worker: token directo, dura ~1 hora.
+      driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: response => {
+          if (response.error) {
+            // Falló la reconexión silenciosa: no es un error visible, solo pide tocar.
+            if (driveSilent) { driveSilent = false; setDriveStatus(t('drive.reconnectFail')); return; }
+            return setDriveStatus(t('drive.authFail'), 'is-warn');
+          }
+          adoptDriveToken(response);
+          driveSilent = false;
+          const action = drivePendingAction;
+          drivePendingAction = null;
+          if (action) action(); else setDriveStatus(t('drive.connected'), 'is-ok');
+        },
+      });
+    }
+    // Reconexión al arranque, siempre sin popup: primero el token guardado que
+    // aún no vence; si ya venció y hay refresh token, se renueva con el worker.
+    driveToken = restoreDriveToken();
+    if (!driveToken) await refreshDriveToken();
+    if (driveToken) setDriveStatus(t('drive.connected'), 'is-ok');
+    else setDriveStatus(t('drive.notConnected'));
   };
   script.onerror = () => setDriveStatus(t('drive.offline'), 'is-warn');
   document.head.append(script);
 }
 const silentSync = () => driveSync({ silent: true, retry: silentSync }).catch(() => {});
 
-// Ejecuta `action` asegurando que haya un token válido.
+// Ejecuta `action` asegurando que haya un token válido. Solo abre el popup si
+// no hay token vigente ni forma de renovarlo en silencio.
+//
+// Se llama desde clics, así que el popup debe pedirse sin esperar nada: si hay
+// un 'await' por medio el navegador ya no lo asocia al toque y lo bloquea. Por
+// eso el camino sin refresh token (primera conexión) es totalmente síncrono.
 function withDriveToken(action) {
-  if (!driveTokenClient) return setDriveStatus(t('drive.notLoaded'), 'is-warn');
+  if (!driveTokenClient && !driveCodeClient) return setDriveStatus(t('drive.notLoaded'), 'is-warn');
   if (driveToken) return action();
-  drivePendingAction = action;
-  driveTokenClient.requestAccessToken();
+  if (!localStorage.getItem(DRIVE_REFRESH_KEY)) {
+    drivePendingAction = action;
+    return requestDriveAuth();
+  }
+  // Hay refresh token: lo normal es renovar en silencio y no abrir nada.
+  return refreshDriveToken().then(ok => {
+    if (ok) return action();
+    drivePendingAction = action;
+    requestDriveAuth();
+  });
 }
 
 function driveHeaders(extra = {}) {
@@ -101,11 +213,14 @@ function driveHeaders(extra = {}) {
 }
 
 // Un 401 significa que el token expiró: lo descartamos y reintentamos una vez.
-function driveExpired(response, retry) {
+// Con worker, la renovación es silenciosa; sin él (o si falla), abre el popup.
+async function driveExpired(response, retry) {
   if (response.status !== 401) return false;
   driveToken = null;
+  localStorage.removeItem(DRIVE_TOKEN_KEY);
+  if (await refreshDriveToken()) { retry?.(); return true; }
   drivePendingAction = retry;
-  driveTokenClient.requestAccessToken();
+  requestDriveAuth();
   return true;
 }
 
@@ -123,7 +238,7 @@ async function driveSave({ silent = false } = {}) {
         headers: driveHeaders({ 'Content-Type': 'application/json' }),
         body,
       });
-      if (driveExpired(response, () => driveSave({ silent }))) return;
+      if (await driveExpired(response, () => driveSave({ silent }))) return;
       // Si el archivo fue borrado del Drive, lo creamos de nuevo.
       if (response.status === 404) { localStorage.removeItem(DRIVE_FILE_KEY); return driveSave({ silent }); }
     } else {
@@ -137,7 +252,7 @@ async function driveSave({ silent = false } = {}) {
         headers: driveHeaders({ 'Content-Type': `multipart/related; boundary=${boundary}` }),
         body: multipart,
       });
-      if (driveExpired(response, () => driveSave({ silent }))) return;
+      if (await driveExpired(response, () => driveSave({ silent }))) return;
       const data = await response.json();
       if (data.id) localStorage.setItem(DRIVE_FILE_KEY, data.id);
     }
@@ -161,7 +276,7 @@ async function findDriveFileId(retry) {
   const search = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,modifiedTime)&orderBy=${encodeURIComponent('modifiedTime desc')}`,
     { headers: driveHeaders() });
-  if (driveExpired(search, retry)) return undefined; // undefined = reintentando tras re-autorizar
+  if (await driveExpired(search, retry)) return undefined; // undefined = reintentando tras re-autorizar
   if (!search.ok) throw new Error(`HTTP ${search.status}`);
   const found = await search.json();
   const fileId = found.files?.[0]?.id ?? null;
@@ -171,7 +286,7 @@ async function findDriveFileId(retry) {
 
 async function readDriveBackup(fileId, retry) {
   const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: driveHeaders() });
-  if (driveExpired(response, retry)) return undefined;
+  if (await driveExpired(response, retry)) return undefined;
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const payload = await response.json();
   return Array.isArray(payload?.sessions) ? payload : null;
@@ -283,8 +398,10 @@ async function driveRestore() {
 }
 
 // Llamado por app.js al terminar una sesión: fusiona y sube en segundo plano.
-function driveAutoSync() {
-  if (!driveEnabled() || !driveToken) return;
+// Nunca abre popup: si no hay token ni renovación silenciosa, simplemente no sube.
+async function driveAutoSync() {
+  if (!driveEnabled()) return;
+  if (!driveToken && !(await refreshDriveToken())) return;
   driveSync({ silent: true, retry: driveAutoSync }).catch(() => {});
 }
 
