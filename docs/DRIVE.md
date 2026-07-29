@@ -73,7 +73,14 @@ Borrar por las buenas no bastaba: el otro dispositivo aún tenía la sesión y l
 fusión la revivía. Ahora cada borrado deja una **lápida** (`{id: cuándo}`) que se sube con
 el respaldo y dice "esto ya no existe". La regla de desempate es que si la entrada se editó
 **después** de la lápida, gana la edición, así que volver a crear algo nunca queda
-enterrado por un borrado viejo. Las lápidas se olvidan solas a los 180 días.
+enterrado por un borrado viejo.
+
+**Las lápidas caducan a los 180 días, tus datos nunca.** Una lápida solo sirve para avisar
+a los otros dispositivos, y cumple ese trabajo la primera vez que cada uno sincroniza;
+después es peso muerto que viaja dentro de *cada* subida. Sin límite, años de uso
+acumularían miles de avisos sobre sesiones que ya no le importan a nadie. El único caso que
+el plazo no cubre es un dispositivo que pase **más de 6 meses sin abrirse**: entonces esa
+sesión reaparece y hay que borrarla otra vez. No se pierde nada, en el peor caso sobra algo.
 
 ### Cuándo sincroniza
 
@@ -82,6 +89,16 @@ enterrado por un borrado viejo. Las lápidas se olvidan solas a los 180 días.
 - **Mientras entrenas**, unos dos minutos después del último cambio, para que cerrar el
   navegador a media rutina no se lleve las series por delante.
 - Al **terminar** un entrenamiento y al pulsar **Sincronizar**.
+
+Lo que tiene significado sube **al instante**: terminar un entrenamiento, borrar una sesión,
+guardar o borrar una plantilla, guardar o borrar cardio. Los dos minutos son solo para el
+goteo de teclas mientras anotas series, y son a propósito: una serie no se escribe de un
+golpe (peso, repeticiones, correcciones), así que subir en cada cambio serían decenas de
+subidas por entrenamiento — batería y datos gastados en subir lo mismo veinte veces, y con
+riesgo de chocar con el límite de peticiones de Google. Guardar **en el dispositivo** sí es
+instantáneo desde siempre: el borrador sobrevive a recargas y cierres. Los dos minutos solo
+afectan a la copia en Drive, que cubre el caso raro de que el aparato muera y no se vuelva
+a encender.
 
 Ninguna de las automáticas abre nunca una ventana de Google: si el permiso no se puede
 renovar en silencio, la subida se deja para la próxima vez.
@@ -97,9 +114,11 @@ usuarios y la capa gratuita de Cloudflare sobra.
 Pasos (una sola vez, ~10 minutos):
 
 1. Crea una cuenta gratis en **https://dash.cloudflare.com**.
-2. Menú **Workers & Pages → Create → Create Worker** → nómbralo `loadout-auth` → *Deploy*.
+2. Menú **Compute → Create** (el panel nuevo de Cloudflare; antes era *Workers & Pages*) →
+   plantilla **Hello World** → nómbralo `loadout-auth` → *Deploy*.
 3. Botón **Edit code** → borra el código de ejemplo, pega el contenido completo de
-   `worker/drive-auth.js` → *Deploy*.
+   `worker/drive-auth.js` → *Deploy*. Ojo: guardar en el editor **no** basta, sin pulsar
+   *Deploy* la URL pública sigue sirviendo el "Hello World".
 4. Consigue el **client secret**: Google Cloud Console → **APIs y servicios → Credenciales**
    → clic en tu ID de cliente OAuth → copia el **Secreto del cliente** (`GOCSPX-...`).
 5. En el worker: **Settings → Variables and Secrets → Add**:
