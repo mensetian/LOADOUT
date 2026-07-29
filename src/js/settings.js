@@ -14,6 +14,7 @@ const THEME_KEY   = 'loadout-theme';
 const REST_DEF_KEY = 'loadout-rest-default';
 const SOUND_KEY   = 'loadout-sound';
 const VIBRATE_KEY = 'loadout-vibrate';
+const BGTIMER_KEY = 'loadout-bgtimer';
 
 // --- Tema (persistente) -----------------------------------------------------
 // Ojo: la clase `dark` en <body> pinta el tema CLARO (crema). Sin clase = oscuro.
@@ -38,6 +39,7 @@ function syncPrefUI() {
   setSeg('#restSeg', Number(localStorage.getItem(REST_DEF_KEY)) || 90);
   setSeg('#soundSeg', localStorage.getItem(SOUND_KEY) === 'off' ? 'off' : 'on');
   setSeg('#vibrateSeg', localStorage.getItem(VIBRATE_KEY) === 'off' ? 'off' : 'on');
+  setSeg('#bgTimerSeg', localStorage.getItem(BGTIMER_KEY) === 'off' ? 'off' : 'on');
 }
 
 // --- Cableado de los controles ----------------------------------------------
@@ -57,6 +59,12 @@ document.querySelectorAll('#restSeg button').forEach(b => b.onclick = () => {
 document.querySelectorAll('#unitSeg button').forEach(b => b.onclick = () => { setUnit(b.dataset.val); syncPrefUI(); });
 document.querySelectorAll('#soundSeg button').forEach(b => b.onclick = () => { localStorage.setItem(SOUND_KEY, b.dataset.val); syncPrefUI(); });
 document.querySelectorAll('#vibrateSeg button').forEach(b => b.onclick = () => { localStorage.setItem(VIBRATE_KEY, b.dataset.val); syncPrefUI(); });
+// Apagarlo a mitad de un descanso suelta el audio en el acto, no en el siguiente.
+document.querySelectorAll('#bgTimerSeg button').forEach(b => b.onclick = () => {
+  localStorage.setItem(BGTIMER_KEY, b.dataset.val);
+  if (b.dataset.val === 'off') releaseAwake(); else if (restInterval) keepAwake();
+  syncPrefUI();
+});
 
 // El botón de tema del header también persiste ahora.
 document.querySelector('#themeButton').onclick = () => setTheme(document.body.classList.contains('dark') ? 'light' : 'dark');

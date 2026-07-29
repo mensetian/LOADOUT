@@ -635,6 +635,46 @@ function startRest(seconds=restDuration){
     if(left<=0){stopRest(); beep(); if(navigator.vibrate && localStorage.getItem('loadout-vibrate')!=='off')navigator.vibrate([200,100,200]);
       if(document.hidden) notifyRestDone();}};
   restTick(); restInterval=setInterval(restTick,250);
+  keepAwake();
+}
+
+// --- Mantener vivo el contador en segundo plano ---
+// Con la app oculta o la pantalla apagada el navegador congela los temporizadores
+// y el descanso se queda parado. Una pista de audio inaudible en bucle hace que la
+// página cuente como "reproduciendo", y entonces el sistema la deja correr. Es la
+// única forma de que el pitido suene puntual sin tener LOADOUT en pantalla.
+const KEEPALIVE_KEY='loadout-bgtimer';
+let keepEl=null;
+// WAV de un segundo a volumen mínimo: el silencio absoluto lo descartan algunos
+// móviles, así que llevamos la amplitud más baja que existe (1 sobre 32767).
+function silentTrack(){
+  const rate=8000, n=rate, buf=new ArrayBuffer(44+n*2), v=new DataView(buf);
+  const txt=(off,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(off+i,s.charCodeAt(i)); };
+  txt(0,'RIFF'); v.setUint32(4,36+n*2,true); txt(8,'WAVEfmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  txt(36,'data'); v.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++) v.setInt16(44+i*2, i%2?1:-1, true);
+  return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
+}
+function keepAwake(){
+  if(localStorage.getItem(KEEPALIVE_KEY)==='off') return;
+  try{
+    if(!keepEl){ keepEl=new Audio(silentTrack()); keepEl.loop=true; keepEl.volume=.02; }
+    // Se lanza desde el toque que inicia el descanso, así que el navegador lo permite.
+    keepEl.play().then(setMediaInfo).catch(()=>{});
+  }catch{}
+}
+function releaseAwake(){ try{ keepEl?.pause(); }catch{} }
+// El control de reproducción del sistema queda con el nombre de la app y su
+// botón de parar corta el descanso, en vez de dejar un audio fantasma sonando.
+function setMediaInfo(){
+  if(!('mediaSession' in navigator)) return;
+  try{
+    navigator.mediaSession.metadata=new MediaMetadata({title:t('rest.mediaTitle'),artist:'LOADOUT',artwork:[{src:'src/img/icon-192.png',sizes:'192x192',type:'image/png'}]});
+    navigator.mediaSession.setActionHandler('pause',()=>stopRest());
+    navigator.mediaSession.setActionHandler('stop',()=>stopRest());
+  }catch{}
 }
 // Aviso del sistema para cuando el descanso termina con la app en segundo plano.
 function notifyRestDone(){
@@ -648,7 +688,7 @@ function notifyRestDone(){
 // el navegador espacia los intervalos, pero el fin del descanso se calcula con la hora real).
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden && restInterval && restTick) restTick(); });
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
-function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
+function stopRest(){clearInterval(restInterval);restInterval=null;releaseAwake();$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
 // El panel y la pestaña muestran el mismo tiempo: siempre se escriben juntos.
 function showRest(txt){$('#restDisplay').textContent=txt;$('#restTabDisplay').textContent=txt;}
 function beep(){if(localStorage.getItem('loadout-sound')==='off')return;try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
