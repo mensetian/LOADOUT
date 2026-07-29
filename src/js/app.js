@@ -623,15 +623,30 @@ function renderProgress() {
   $$('.metric-switch button').forEach(b=>b.onclick=()=>{ progressMetric=b.dataset.metric; renderProgress(); });
 }
 // --- Temporizador de descanso ---
-let restInterval=null, restEnds=0, restDuration=Number(localStorage.getItem('loadout-rest-default'))||90;
+let restInterval=null, restTick=null, restEnds=0, restDuration=Number(localStorage.getItem('loadout-rest-default'))||90;
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
   restDuration=seconds; restEnds=Date.now()+seconds*1000; clearInterval(restInterval);
   $('#restTimer').classList.add('is-running');
-  const tick=()=>{const left=Math.round((restEnds-Date.now())/1000); showRest(fmtRest(left));
-    if(left<=0){stopRest(); beep(); if(navigator.vibrate && localStorage.getItem('loadout-vibrate')!=='off')navigator.vibrate([200,100,200]);}};
-  tick(); restInterval=setInterval(tick,250);
+  // Pide permiso de notificaciones la primera vez: es el único aviso fiable
+  // cuando la app queda en segundo plano.
+  if('Notification' in window && Notification.permission==='default'){ try{ Notification.requestPermission(); }catch{} }
+  restTick=()=>{const left=Math.round((restEnds-Date.now())/1000); showRest(fmtRest(left));
+    if(left<=0){stopRest(); beep(); if(navigator.vibrate && localStorage.getItem('loadout-vibrate')!=='off')navigator.vibrate([200,100,200]);
+      if(document.hidden) notifyRestDone();}};
+  restTick(); restInterval=setInterval(restTick,250);
 }
+// Aviso del sistema para cuando el descanso termina con la app en segundo plano.
+function notifyRestDone(){
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const opts={body:t('rest.notifBody'), icon:'src/img/icon-192.png', tag:'loadout-rest', vibrate:[200,100,200]};
+  if(navigator.serviceWorker && navigator.serviceWorker.controller){
+    navigator.serviceWorker.ready.then(r=>r.showNotification(t('rest.notifTitle'),opts)).catch(()=>{});
+  } else { try{ new Notification(t('rest.notifTitle'),opts); }catch{} }
+}
+// Al volver a la app, el contador se pone al día de inmediato (en segundo plano
+// el navegador espacia los intervalos, pero el fin del descanso se calcula con la hora real).
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && restInterval && restTick) restTick(); });
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
 function stopRest(){clearInterval(restInterval);restInterval=null;$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
 // El panel y la pestaña muestran el mismo tiempo: siempre se escriben juntos.
