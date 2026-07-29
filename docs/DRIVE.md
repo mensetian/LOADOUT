@@ -1,5 +1,9 @@
 # Activar la sincronización con Google Drive
 
+> Para ver de un vistazo cómo encaja todo (los tres flujos de autorización, qué dato vive
+> dónde y cómo funciona la fusión), abre [drive-esquema.html](drive-esquema.html) en el
+> navegador.
+
 La app es estática (no hay servidor), así que el navegador habla directo con Google.
 Para eso Google necesita saber que **tu** app existe: eso es el *Client ID*.
 

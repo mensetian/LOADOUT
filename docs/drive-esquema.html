@@ -1,0 +1,287 @@
+﻿<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LOADOUT — Cómo funciona la sincronización con Drive</title>
+<style>
+  /* Paleta tomada del propio sistema de LOADOUT (src/css/styles.css).
+     Los actores se codifican por color: la app usa el acento de la marca,
+     el worker una variante fría del mismo tono, Google el neutro. */
+  :root{
+    --bg:#121212; --panel:#1a1b1d; --panel2:#202225;
+    --ink:#f6f5f1; --muted:#8d9295; --line:#303235;
+    --app:#e7ff37; --worker:#37e7ff; --google:#9aa0a3; --alert:#ff5e4e;
+    --on-accent:#141414;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#eeeae2; --panel:#fffdf8; --panel2:#e6e1d6;
+      --ink:#171918; --muted:#6c706a; --line:#d5d0c5;
+      --app:#cf4e3f; --worker:#2f6f8f; --google:#7d817a; --alert:#a83c30;
+      --on-accent:#fffdf8;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#eeeae2; --panel:#fffdf8; --panel2:#e6e1d6;
+    --ink:#171918; --muted:#6c706a; --line:#d5d0c5;
+    --app:#cf4e3f; --worker:#2f6f8f; --google:#7d817a; --alert:#a83c30;
+    --on-accent:#fffdf8;
+  }
+  :root[data-theme="dark"]{
+    --bg:#121212; --panel:#1a1b1d; --panel2:#202225;
+    --ink:#f6f5f1; --muted:#8d9295; --line:#303235;
+    --app:#e7ff37; --worker:#37e7ff; --google:#9aa0a3; --alert:#ff5e4e;
+    --on-accent:#141414;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.65 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:min(74ch,100%); margin:auto; padding:0 20px 96px}
+
+  /* ---------- Cabecera ---------- */
+  header{padding:56px 0 30px; border-bottom:1px solid var(--line)}
+  .eyebrow{
+    margin:0 0 14px; color:var(--app);
+    font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.18em; text-transform:uppercase;
+  }
+  h1{
+    margin:0; font-size:clamp(30px,6vw,46px); font-weight:800;
+    line-height:1.04; letter-spacing:-.02em; text-wrap:balance;
+  }
+  .lede{margin:18px 0 0; color:var(--muted); font-size:16px; max-width:62ch}
+
+  /* ---------- Secciones ---------- */
+  section{padding-top:52px}
+  h2{
+    margin:0 0 6px; font-size:12px; font-weight:700;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--app);
+  }
+  h3{margin:0 0 18px; font-size:clamp(21px,3.4vw,27px); font-weight:750; letter-spacing:-.01em; text-wrap:balance}
+  p{margin:0 0 14px; max-width:65ch}
+  .muted{color:var(--muted)}
+  code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:.875em; background:var(--panel2); color:var(--ink);
+    padding:.12em .4em; border-radius:3px;
+  }
+
+  /* ---------- Actores ---------- */
+  .chip{
+    display:inline-flex; align-items:center; white-space:nowrap;
+    padding:3px 8px; border-radius:3px;
+    font:600 9.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.1em; text-transform:uppercase;
+    border:1px solid currentColor;
+  }
+  .c-app{color:var(--app)} .c-worker{color:var(--worker)}
+  .c-google{color:var(--google)} .c-alert{color:var(--alert)}
+
+  .legend{display:flex; flex-wrap:wrap; gap:10px; margin:26px 0 0}
+  .legend div{
+    flex:1 1 190px; min-width:0; padding:15px 16px;
+    background:var(--panel); border:1px solid var(--line); border-left:3px solid;
+  }
+  .legend div.a{border-left-color:var(--app)}
+  .legend div.w{border-left-color:var(--worker)}
+  .legend div.g{border-left-color:var(--google)}
+  .legend p{margin:9px 0 0; font-size:13px; color:var(--muted); max-width:none}
+
+  /* ---------- Traza de pasos ---------- */
+  .trace{list-style:none; margin:0; padding:0; display:grid; gap:1px; background:var(--line); border:1px solid var(--line)}
+  .trace li{
+    display:grid; grid-template-columns:auto 1fr; gap:16px;
+    align-items:start; padding:17px 18px; background:var(--panel);
+  }
+  .gutter{display:grid; gap:7px; justify-items:start; width:74px}
+  .num{
+    font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color:var(--muted); letter-spacing:.06em;
+  }
+  .trace h4{margin:0 0 5px; font-size:15px; font-weight:700; letter-spacing:-.005em}
+  .trace p{margin:0; font-size:13.5px; color:var(--muted); max-width:58ch}
+
+  .outcome{
+    display:flex; gap:12px; align-items:baseline;
+    margin-top:14px; padding:15px 18px;
+    background:var(--panel2); border-left:3px solid var(--app);
+  }
+  .outcome strong{
+    flex:0 0 auto;
+    font:600 9.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--app);
+  }
+  .outcome span{font-size:13.5px}
+
+  /* ---------- Tabla ---------- */
+  .scroll{overflow-x:auto; border:1px solid var(--line); background:var(--panel)}
+  table{border-collapse:collapse; width:100%; min-width:460px; font-size:13.5px}
+  th,td{padding:12px 15px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+  th{
+    font:600 9.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.11em; text-transform:uppercase; color:var(--muted);
+    background:var(--panel2); white-space:nowrap;
+  }
+  tbody tr:last-child td{border-bottom:0}
+  td:first-child{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; white-space:nowrap}
+
+  /* ---------- Notas ---------- */
+  .notes{list-style:none; margin:0; padding:0; display:grid; gap:11px}
+  .notes li{
+    padding-left:17px; border-left:2px solid var(--line);
+    font-size:14px; color:var(--muted);
+  }
+  .notes li strong{color:var(--ink); font-weight:650}
+  .notes li.warn{border-left-color:var(--alert)}
+
+  footer{
+    margin-top:60px; padding-top:22px; border-top:1px solid var(--line);
+    font:11px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color:var(--muted); letter-spacing:.04em;
+  }
+  @media (max-width:520px){
+    .trace li{grid-template-columns:1fr; gap:10px}
+    .gutter{width:auto; grid-auto-flow:column; justify-content:start; align-items:center; gap:10px}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">LOADOUT · Gym Data System</p>
+  <h1>Cómo funciona la conexión con Google&nbsp;Drive</h1>
+  <p class="lede">Antes había que reconectar cada vez que abrías la app. Ahora se inicia sesión una sola vez por dispositivo. Esto es lo que cambió y por qué hizo falta un worker.</p>
+</header>
+
+<section>
+  <h2>Las piezas</h2>
+  <h3>Tres partes, cada una con un trabajo</h3>
+  <p>La app nunca habla con Google para renovar permisos: para eso está el worker, que es el único que conoce el secreto de la aplicación.</p>
+  <div class="legend">
+    <div class="a"><span class="chip c-app">App</span><p>Tu navegador. Guarda los datos del gimnasio y las llaves de acceso de <em>este</em> dispositivo.</p></div>
+    <div class="w"><span class="chip c-worker">Worker</span><p>Función en Cloudflare. Custodia el <em>client secret</em> y pide tokens a Google. No guarda nada.</p></div>
+    <div class="g"><span class="chip c-google">Google</span><p>Emite los permisos y aloja el archivo <code>loadout-respaldo.json</code> en tu Drive.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Flujo 1</h2>
+  <h3>La primera conexión, una sola vez por dispositivo</h3>
+  <p>Es el único momento en que verás una ventana de Google. Lo importante ocurre en el paso 4: Google entrega un <strong>refresh token</strong>, la llave que no caduca.</p>
+  <ol class="trace">
+    <li>
+      <div class="gutter"><span class="num">01</span><span class="chip c-app">App</span></div>
+      <div><h4>Pulsas «Conectar»</h4><p>La app abre la ventana de Google pidiendo permiso <code>drive.file</code>: solo los archivos que ella misma crea.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">02</span><span class="chip c-google">Google</span></div>
+      <div><h4>Apruebas el acceso</h4><p>En vez de un token, Google devuelve un <strong>código de autorización</strong> de un solo uso. Por sí solo no sirve para nada.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">03</span><span class="chip c-worker">Worker</span></div>
+      <div><h4>La app le pasa el código al worker</h4><p>El worker le añade el <em>client secret</em> —que jamás sale de Cloudflare— y se lo presenta a Google.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">04</span><span class="chip c-google">Google</span></div>
+      <div><h4>Google entrega las dos llaves</h4><p>Un <strong>access token</strong> que caduca en 1 hora, y un <strong>refresh token</strong> permanente. Este segundo es el que solo se consigue teniendo un servidor.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">05</span><span class="chip c-app">App</span></div>
+      <div><h4>Ambas quedan guardadas en el dispositivo</h4><p>En el <code>localStorage</code> de tu navegador. El worker no se queda con ninguna copia.</p></div>
+    </li>
+  </ol>
+  <div class="outcome"><strong>Resultado</strong><span>A partir de aquí, este dispositivo ya no necesita volver a pedirte permiso.</span></div>
+</section>
+
+<section>
+  <h2>Flujo 2</h2>
+  <h3>Cada vez que abres la app</h3>
+  <p>Este es el flujo que arregla el problema original. Todo ocurre en silencio, sin ventanas ni interrupciones.</p>
+  <ol class="trace">
+    <li>
+      <div class="gutter"><span class="num">01</span><span class="chip c-app">App</span></div>
+      <div><h4>¿Sigue vivo el access token guardado?</h4><p>Si aún no ha pasado la hora, se reutiliza tal cual y el chip aparece conectado al instante. Fin.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">02</span><span class="chip c-worker">Worker</span></div>
+      <div><h4>Si caducó, se envía el refresh token</h4><p>La app llama a <code>/refresh</code>. El worker vuelve a poner el secreto y le pide a Google un token nuevo.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">03</span><span class="chip c-app">App</span></div>
+      <div><h4>Otra hora de acceso, sin tocar nada</h4><p>El token nuevo se guarda y la app queda conectada. Este ciclo se puede repetir indefinidamente.</p></div>
+    </li>
+  </ol>
+  <div class="outcome"><strong>Resultado</strong><span>Da igual si pasó una hora o tres meses: al abrir la app aparece conectada.</span></div>
+</section>
+
+<section>
+  <h2>Flujo 3</h2>
+  <h3>Si el token vence mientras estás usando la app</h3>
+  <p>Puede pasar en una sesión larga de gimnasio. Antes te habría saltado una ventana a media serie.</p>
+  <ol class="trace">
+    <li>
+      <div class="gutter"><span class="num">01</span><span class="chip c-google">Google</span></div>
+      <div><h4>Drive responde «401 no autorizado»</h4><p>La señal de que el token expiró justo en medio de una subida o descarga.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">02</span><span class="chip c-worker">Worker</span></div>
+      <div><h4>Renovación silenciosa</h4><p>La app descarta el token muerto y pide uno nuevo por la misma vía del flujo 2.</p></div>
+    </li>
+    <li>
+      <div class="gutter"><span class="num">03</span><span class="chip c-app">App</span></div>
+      <div><h4>Se reintenta la operación</h4><p>La subida o descarga se repite con el token fresco. Tú no ves nada.</p></div>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2>Seguridad</h2>
+  <h3>Qué se guarda y dónde</h3>
+  <p>El reparto no es casual: lo que identifica públicamente a la app puede estar en el código, lo que da acceso no.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Dato</th><th>Dónde vive</th><th>Por qué ahí</th></tr></thead>
+      <tbody>
+        <tr><td>Client ID</td><td>En el código, a la vista</td><td>Es público por diseño; los orígenes autorizados impiden usarlo desde otro sitio.</td></tr>
+        <tr><td>Client secret</td><td>Solo en Cloudflare</td><td>Es la credencial real de la app. Nunca llega al navegador ni al repositorio.</td></tr>
+        <tr><td>Refresh token</td><td>En tu dispositivo</td><td>Es tuyo, no de la app. Por eso el worker no necesita base de datos.</td></tr>
+        <tr><td>Access token</td><td>En tu dispositivo</td><td>Caduca solo en 1 hora, así que su exposición es limitada por diseño.</td></tr>
+        <tr><td>Tus entrenamientos</td><td>Tu navegador y tu Drive</td><td>No pasan por el worker en ningún momento: la app habla directo con Drive.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted" style="margin-top:14px">Como el worker no almacena nada de nadie, atiende igual a un usuario que a mil. Cada dispositivo guarda su propia llave.</p>
+</section>
+
+<section>
+  <h2>Datos</h2>
+  <h3>Sincronizar une, no reemplaza</h3>
+  <p>Al sincronizar, la app baja lo que hay en Drive, lo <strong>fusiona</strong> con lo local y sube la unión. Cada sesión tiene un identificador único: lo que está en un lado y no en el otro se conserva, y si la misma sesión se editó en ambos dispositivos gana la versión editada más tarde.</p>
+  <p>La consecuencia práctica es que puedes entrenar en el móvil y en el PC sin miedo a que uno pise al otro.</p>
+</section>
+
+<section>
+  <h2>Límites</h2>
+  <h3>Lo que sigue sin hacer</h3>
+  <ul class="notes">
+    <li><strong>No propaga borrados.</strong> Si borras una sesión aquí pero sigue en Drive, la próxima fusión la revive. Para eliminarla de verdad, usa «Forzar restaurar» en el otro dispositivo.</li>
+    <li><strong>No es en vivo.</strong> La unión ocurre al terminar un entrenamiento o al pulsar el botón, no continuamente.</li>
+    <li><strong>Cada dispositivo se conecta una vez.</strong> El refresh token es de este navegador; en el móvil habrá que autorizar de nuevo, una sola vez.</li>
+    <li class="warn"><strong>Si revocas el acceso</strong> desde tu cuenta de Google, la llave deja de servir y la app volverá a pedir permiso. Es el comportamiento correcto.</li>
+  </ul>
+</section>
+
+<footer>src/js/drive.js · worker/drive-auth.js · docs/DRIVE.md</footer>
+
+</div>
+
+</body>
+</html>
