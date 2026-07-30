@@ -1,5 +1,5 @@
 // Subir la versión invalida la caché anterior en todos los dispositivos.
-const CACHE = 'loadout-v38';
+const CACHE = 'loadout-v39';
 const ASSETS = ['./', './index.html', './manifest.json', './src/css/styles.css',
   './src/js/config.js', './src/js/i18n.js', './src/js/cardio.js', './src/js/app.js', './src/js/backup.js', './src/js/drive.js', './src/js/settings.js', './src/img/icon.svg',
   './src/img/icon-180.png', './src/img/icon-192.png', './src/img/icon-512.png', './src/img/icon-maskable-512.png'];

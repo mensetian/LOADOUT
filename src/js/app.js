@@ -706,7 +706,7 @@ function startRest(seconds=restDuration){
     if(left<=0){stopRest(); beep(); if(navigator.vibrate && localStorage.getItem('loadout-vibrate')!=='off')navigator.vibrate([200,100,200]);
       if(document.hidden) notifyRestDone();}};
   restTick(); restInterval=setInterval(restTick,250);
-  keepAwake();
+  primeBeep(); keepAwake();
 }
 
 // --- Mantener vivo el contador en segundo plano ---
@@ -714,6 +714,10 @@ function startRest(seconds=restDuration){
 // y el descanso se queda parado. Una pista de audio inaudible en bucle hace que la
 // página cuente como "reproduciendo", y entonces el sistema la deja correr. Es la
 // única forma de que el pitido suene puntual sin tener LOADOUT en pantalla.
+// Costo asumido: mientras suena, el sistema toma el foco de audio y baja un poco
+// el volumen de otras apps (música, videos). Por eso solo se reproduce con la app
+// oculta — en pantalla los temporizadores corren solos — y el ajuste
+// "Contador en segundo plano" permite apagarlo del todo.
 const KEEPALIVE_KEY='loadout-bgtimer';
 let keepEl=null;
 // WAV de un segundo a volumen mínimo: el silencio absoluto lo descartan algunos
@@ -732,8 +736,10 @@ function keepAwake(){
   if(localStorage.getItem(KEEPALIVE_KEY)==='off') return;
   try{
     if(!keepEl){ keepEl=new Audio(silentTrack()); keepEl.loop=true; keepEl.volume=.02; }
-    // Se lanza desde el toque que inicia el descanso, así que el navegador lo permite.
-    keepEl.play().then(setMediaInfo).catch(()=>{});
+    // Se lanza desde el toque que inicia el descanso, así que el navegador lo
+    // permite; ese play también "desbloquea" el elemento para poder reanudarlo
+    // luego sin gesto, al pasar a segundo plano.
+    keepEl.play().then(()=>{ setMediaInfo(); if(!document.hidden) keepEl.pause(); }).catch(()=>{});
   }catch{}
 }
 function releaseAwake(){ try{ keepEl?.pause(); }catch{} }
@@ -755,14 +761,24 @@ function notifyRestDone(){
     navigator.serviceWorker.ready.then(r=>r.showNotification(t('rest.notifTitle'),opts)).catch(()=>{});
   } else { try{ new Notification(t('rest.notifTitle'),opts); }catch{} }
 }
-// Al volver a la app, el contador se pone al día de inmediato (en segundo plano
-// el navegador espacia los intervalos, pero el fin del descanso se calcula con la hora real).
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden && restInterval && restTick) restTick(); });
+// El audio de fondo solo suena con la app oculta: al esconderse arranca (para que
+// el sistema no congele el contador) y al volver se corta y el contador se pone al
+// día de inmediato (el fin del descanso se calcula con la hora real).
+document.addEventListener('visibilitychange',()=>{
+  if(!restInterval) return;
+  if(document.hidden){ keepAwake(); }
+  else { releaseAwake(); if(restTick) restTick(); }
+});
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
 function stopRest(){clearInterval(restInterval);restInterval=null;releaseAwake();$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
 // El panel y la pestaña muestran el mismo tiempo: siempre se escriben juntos.
 function showRest(txt){$('#restDisplay').textContent=txt;$('#restTabDisplay').textContent=txt;}
-function beep(){if(localStorage.getItem('loadout-sound')==='off')return;try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
+// Un solo AudioContext, creado en el toque que inicia el descanso: uno nuevo al
+// vencer el timer en segundo plano nace suspendido y el pitido sale mudo — de ahí
+// venía el "a veces suena, a veces no".
+let beepCtx=null;
+function primeBeep(){try{if(!beepCtx)beepCtx=new (window.AudioContext||window.webkitAudioContext)();if(beepCtx.state==='suspended')beepCtx.resume().catch(()=>{});}catch{}}
+function beep(){if(localStorage.getItem('loadout-sound')==='off')return;try{primeBeep();const ctx=beepCtx;if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.6);o.start();o.stop(ctx.currentTime+.6);}catch{}}
 $$('#restTimer [data-rest]').forEach(b=>b.onclick=()=>startRest(Number(b.dataset.rest)));
 showRest(fmtRest(restDuration));
 
