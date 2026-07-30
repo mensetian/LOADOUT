@@ -694,7 +694,7 @@ function renderProgress() {
   $$('.metric-switch button').forEach(b=>b.onclick=()=>{ progressMetric=b.dataset.metric; renderProgress(); });
 }
 // --- Temporizador de descanso ---
-let restInterval=null, restTick=null, restEnds=0, restDuration=Number(localStorage.getItem('loadout-rest-default'))||90;
+let restInterval=null, restTimeout=null, restTick=null, restEnds=0, restDuration=Number(localStorage.getItem('loadout-rest-default'))||90;
 function fmtRest(s){s=Math.max(0,s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
 function startRest(seconds=restDuration){
   restDuration=seconds; restEnds=Date.now()+seconds*1000; clearInterval(restInterval);
@@ -706,18 +706,21 @@ function startRest(seconds=restDuration){
     if(left<=0){stopRest(); beep(); if(navigator.vibrate && localStorage.getItem('loadout-vibrate')!=='off')navigator.vibrate([200,100,200]);
       if(document.hidden) notifyRestDone();}};
   restTick(); restInterval=setInterval(restTick,250);
+  // En segundo plano el navegador espacia los intervalos, pero un timeout único
+  // apuntado al final suele respetarse (rests < 5 min no entran en la
+  // limitación fuerte). Es el aviso puntual sin necesidad de audio.
+  clearTimeout(restTimeout); restTimeout=setTimeout(()=>{ if(restInterval&&restTick) restTick(); }, seconds*1000+80);
   primeBeep(); keepAwake();
 }
 
-// --- Mantener vivo el contador en segundo plano ---
-// Con la app oculta o la pantalla apagada el navegador congela los temporizadores
-// y el descanso se queda parado. Una pista de audio inaudible en bucle hace que la
-// página cuente como "reproduciendo", y entonces el sistema la deja correr. Es la
-// única forma de que el pitido suene puntual sin tener LOADOUT en pantalla.
-// Costo asumido: mientras suena, el sistema toma el foco de audio y baja un poco
-// el volumen de otras apps (música, videos). Por eso solo se reproduce con la app
-// oculta — en pantalla los temporizadores corren solos — y el ajuste
-// "Contador en segundo plano" permite apagarlo del todo.
+// --- Aviso puntual con la pantalla apagada (opcional, apagado por defecto) ---
+// Una pista de audio inaudible en bucle hace que la página cuente como
+// "reproduciendo" y el sistema nunca la congela: el pitido suena exacto incluso
+// con la pantalla apagada. El costo es que el sistema le da foco de audio y baja
+// un poco el volumen de otras apps, así que viene APAGADO por defecto: sin él,
+// el timeout apuntado al final + la notificación cubren el caso normal, y solo
+// con pantalla apagada mucho rato el aviso puede llegar tarde. Quien quiera
+// exactitud a cambio del bajón de volumen lo enciende en ajustes.
 const KEEPALIVE_KEY='loadout-bgtimer';
 let keepEl=null;
 // WAV de un segundo a volumen mínimo: el silencio absoluto lo descartan algunos
@@ -733,7 +736,7 @@ function silentTrack(){
   return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
 }
 function keepAwake(){
-  if(localStorage.getItem(KEEPALIVE_KEY)==='off') return;
+  if(localStorage.getItem(KEEPALIVE_KEY)!=='on') return;
   try{
     if(!keepEl){ keepEl=new Audio(silentTrack()); keepEl.loop=true; keepEl.volume=.02; }
     // Se lanza desde el toque que inicia el descanso, así que el navegador lo
@@ -770,7 +773,7 @@ document.addEventListener('visibilitychange',()=>{
   else { releaseAwake(); if(restTick) restTick(); }
 });
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
-function stopRest(){clearInterval(restInterval);restInterval=null;releaseAwake();$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
+function stopRest(){clearInterval(restInterval);restInterval=null;clearTimeout(restTimeout);restTimeout=null;releaseAwake();$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
 // El panel y la pestaña muestran el mismo tiempo: siempre se escriben juntos.
 function showRest(txt){$('#restDisplay').textContent=txt;$('#restTabDisplay').textContent=txt;}
 // Un solo AudioContext, creado en el toque que inicia el descanso: uno nuevo al

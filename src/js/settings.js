@@ -39,7 +39,7 @@ function syncPrefUI() {
   setSeg('#restSeg', Number(localStorage.getItem(REST_DEF_KEY)) || 90);
   setSeg('#soundSeg', localStorage.getItem(SOUND_KEY) === 'off' ? 'off' : 'on');
   setSeg('#vibrateSeg', localStorage.getItem(VIBRATE_KEY) === 'off' ? 'off' : 'on');
-  setSeg('#bgTimerSeg', localStorage.getItem(BGTIMER_KEY) === 'off' ? 'off' : 'on');
+  setSeg('#bgTimerSeg', localStorage.getItem(BGTIMER_KEY) === 'on' ? 'on' : 'off');
 }
 
 // --- Cableado de los controles ----------------------------------------------
