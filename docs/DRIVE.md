@@ -163,6 +163,28 @@ versión cacheada: cierra y reabre la PWA.
 **"Google aún no ha cargado"**
 No hubo conexión al abrir la app y la librería de Google no se descargó. Recarga con datos.
 
+## Cuando el respaldo se cae, la app lo dice
+
+El fallo peligroso no es que Drive dé error: es que **deje de subir y nadie se entere**.
+Pasó de verdad — un teléfono se pasó meses guardando solo en local porque el permiso no
+se pudo renovar, y al desinstalar la app se perdió todo menos la primera sesión. El chip
+del header no alcanzaba: en móvil se reduce a un punto de 8 px.
+
+Ahora el aviso escala con los días sin **respaldo real** (una subida a Drive que funcionó,
+o una exportación a archivo; lo marca `markBackupDone()`):
+
+| Sin respaldo | Qué ve |
+|---|---|
+| 3 días | Banner permanente bajo la cabecera. Al tocarlo, reconecta. |
+| 7 días o nunca | Además, un diálogo **al terminar** el entrenamiento, como mucho una vez al día. |
+
+El diálogo aparece al final de la sesión a propósito: cortar a media serie para hablar de
+copias de seguridad es la forma más rápida de que se ignore para siempre. Y su botón
+*Conectar ahora* nace de un toque real, así que Google permite abrir el popup.
+
+Además, la sincronización automática ya no se rinde en silencio: si no puede renovar el
+permiso, deja el chip en rojo (`drive.needsReconnect`) en vez de no hacer nada.
+
 ## Limitaciones honestas
 
 - Sin el worker, el permiso dura **~1 hora** por sesión (con el worker configurado esta

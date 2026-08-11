@@ -86,6 +86,7 @@ async function restoreLastSnapshot() {
 function markBackupDone() {
   localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString());
   renderBackupStatus();
+  renderBackupAlert();
 }
 
 function renderBackupStatus() {
@@ -104,8 +105,72 @@ function renderBackupStatus() {
   el.className = days >= 7 ? 'backup-status is-warn' : 'backup-status';
 }
 
+// --- 4. Aviso cuando el respaldo se cayó ------------------------------------
+// El modo de fallo real no es "Drive da error": es que Drive deja de subir y la
+// app sigue como si nada. El chip del header no basta (en móvil se reduce a un
+// punto de 8px), así que el aviso escala con el tiempo sin respaldo:
+//   3 días  → banner permanente bajo la cabecera.
+//   7 días  → además, un diálogo al terminar de entrenar.
+// El diálogo va al FINAL de la sesión a propósito: interrumpir a media serie
+// para hablar de copias de seguridad es la forma más rápida de que lo ignore.
+const BACKUP_WARN_DAYS = 3;
+const BACKUP_NAG_DAYS = 7;
+const NAG_KEY = 'loadout-backup-nag';
+const NAG_GAP = 86400000; // como mucho, un diálogo por día
+
+// Infinity = nunca hubo un respaldo real. Es el caso más grave, no el más leve.
+function daysSinceBackup() {
+  const at = new Date(localStorage.getItem(LAST_BACKUP_KEY) || '').getTime();
+  return Number.isFinite(at) ? (Date.now() - at) / 86400000 : Infinity;
+}
+const hasDataAtRisk = () => sessions.length > 0 || cardio.length > 0;
+
+// Un toque tiene que resolverlo, no solo informar. Con Drive configurado abre la
+// reconexión (el clic del usuario habilita el popup de Google); sin él, exporta.
+function fixBackupNow() {
+  if (typeof driveEnabled === 'function' && driveEnabled()) {
+    document.querySelector('.tab[data-view="config"]')?.click();
+    withDriveToken(manualSync);
+  } else {
+    document.querySelector('#exportData')?.click();
+  }
+}
+
+function renderBackupAlert() {
+  const el = document.querySelector('#backupAlert');
+  if (!el) return;
+  const days = daysSinceBackup();
+  const show = hasDataAtRisk() && days >= BACKUP_WARN_DAYS;
+  el.hidden = !show;
+  if (!show) return;
+  el.classList.toggle('is-critical', days >= BACKUP_NAG_DAYS);
+  document.querySelector('#backupAlertText').textContent =
+    days === Infinity ? t('alert.never') : t('alert.stale', { n: Math.floor(days) });
+}
+
+// Llamado por app.js al terminar una sesión, ya con la subida intentada.
+async function backupNagIfNeeded() {
+  if (!hasDataAtRisk()) return;
+  const days = daysSinceBackup();
+  if (days < BACKUP_NAG_DAYS) return;
+  if (Date.now() - Number(localStorage.getItem(NAG_KEY) || 0) < NAG_GAP) return;
+  localStorage.setItem(NAG_KEY, String(Date.now()));
+  const ok = await showConfirm(
+    days === Infinity ? t('alert.modalNever', { n: sessions.length })
+                      : t('alert.modalStale', { n: Math.floor(days) }),
+    { okText: t('alert.modalOk'), cancelText: t('alert.modalLater') });
+  if (ok) fixBackupNow();
+}
+
 // --- Arranque ---------------------------------------------------------------
 requestPersistentStorage();
 renderBackupStatus();
 renderSnapshotStatus();
+renderBackupAlert();
 document.querySelector('#restoreSnapshot').onclick = restoreLastSnapshot;
+document.querySelector('#backupAlert').onclick = fixBackupNow;
+// Volver a la app dispara una sincronización (drive.js): si arregló el respaldo,
+// el banner debe irse solo; si no, tiene que seguir ahí al día siguiente.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') renderBackupAlert();
+});

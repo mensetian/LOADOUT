@@ -431,8 +431,13 @@ function collectSession() {
 async function finishSession() {
   const entry=collectSession(); if(!entry.exercises.length){ await showAlert(t('session.needExercise')); return; }
   entry.updatedAt=new Date().toISOString(); // sella la edición para resolver conflictos al fusionar con Drive
-  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest(); window.driveAutoSync?.();
+  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest();
+  const uploading = window.driveAutoSync?.();
   await showAlert(prs.length?t('session.pr',{list:prs.join('\n')}):t('session.saved'));
+  // Se espera a la subida ANTES de decidir si hay que avisar: si acaba de
+  // respaldar, no tiene sentido abrir un diálogo diciendo que no lo hizo.
+  await uploading?.catch(()=>{});
+  await window.backupNagIfNeeded?.();
 }
 // --- Analítica para la barra de indicadores y récords ----------------------
 const daysAgo = key => Math.round((new Date(todayKey()+'T12:00')-new Date(key+'T12:00'))/86400000);

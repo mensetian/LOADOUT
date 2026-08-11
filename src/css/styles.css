@@ -159,6 +159,20 @@ body.modal-open{overflow:hidden}
 .conn-chip.busy .conn-dot{background:var(--hot);animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
 @media(max-width:520px){.conn-chip .conn-label{display:none}.conn-chip{padding:0 10px}}
+/* Banner de respaldo caido. En movil el chip del header se queda en un punto de
+   8px (ver regla de arriba): nadie lo mira. Esta barra ocupa el ancho entero,
+   dice cuantos dias lleva sin subir y al tocarla reconecta. */
+.backup-alert{display:flex;align-items:center;gap:12px;width:100%;padding:11px clamp(20px,5vw,80px);border:0;border-bottom:1px solid var(--line);background:#2a2418;color:var(--ink);font:11px var(--mono);text-align:left;cursor:pointer}
+/* `display:flex` de la regla de arriba le gana al atributo `hidden` del HTML
+   (una clase pesa mas que el estilo del navegador), asi que hay que apagarlo a mano. */
+.backup-alert[hidden]{display:none}
+.backup-alert .ba-text{flex:1;min-width:0}
+.backup-alert .ba-action{flex:none;padding:7px 11px;border:1px solid var(--hot);border-radius:var(--radius-sm);color:var(--hot);font:700 10px var(--mono)}
+.backup-alert.is-critical{background:#3a1a16}
+.backup-alert.is-critical .ba-action{border-color:var(--red);color:var(--red)}
+body.dark .backup-alert{background:#f6e9c8}
+body.dark .backup-alert.is-critical{background:#f3d9d3}
+@media(max-width:720px){.backup-alert{padding:10px 17px;gap:9px;font-size:10px}}
 
 /* === Selector de idioma === */
 .lang-btn{font:800 11px var(--mono);letter-spacing:.04em}

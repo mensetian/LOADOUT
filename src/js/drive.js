@@ -426,7 +426,14 @@ async function driveRestore() {
 async function driveAutoSync() {
   if (!driveEnabled()) return;
   return inBackground(async () => {
-    if (!driveToken && !(await refreshDriveToken())) return;
+    // Antes esto era un `return` mudo: la app se quedaba sin subir durante meses
+    // y nada en la pantalla lo delataba. Ahora el chip se pone en rojo, que es
+    // lo que alimenta el banner y el aviso al terminar de entrenar.
+    if (!driveToken && !(await refreshDriveToken())) {
+      setDriveStatus(t('drive.needsReconnect'), 'is-warn');
+      renderBackupAlert?.();
+      return;
+    }
     lastAutoSync = Date.now();
     await driveSync({ silent: true, retry: driveAutoSync }).catch(() => {});
   });
@@ -473,4 +480,4 @@ initDrive();
 window.LOADOUT_TEST = { ...window.LOADOUT_TEST, mergeSessions, mergeCardio, cardioStats,
   getCardio: () => cardio, setCardio: v => { cardio = v; } };
 const prevOnLangChange = window.onLangChange;
-window.onLangChange = () => { prevOnLangChange?.(); updateConnChip(lastChipKind); renderBackupStatus?.(); };
+window.onLangChange = () => { prevOnLangChange?.(); updateConnChip(lastChipKind); renderBackupStatus?.(); renderBackupAlert?.(); };
