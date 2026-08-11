@@ -775,7 +775,10 @@ document.addEventListener('visibilitychange',()=>{
 // El contador queda fijo: al detener vuelve al estado en reposo mostrando la duración elegida.
 function stopRest(){clearInterval(restInterval);restInterval=null;clearTimeout(restTimeout);restTimeout=null;releaseAwake();$('#restTimer').classList.remove('is-running');showRest(fmtRest(restDuration));}
 // El panel y la pestaña muestran el mismo tiempo: siempre se escriben juntos.
-function showRest(txt){$('#restDisplay').textContent=txt;$('#restTabDisplay').textContent=txt;}
+function showRest(txt){$('#restDisplay').textContent=txt;$('#restTabDisplay').textContent=txt;
+  // El número de la pestaña también se toca: que su etiqueta diga qué hará el toque.
+  // Se guarda en data-i18n-aria para que sobreviva a un cambio de idioma.
+  const tab=$('#restTab'); if(tab){ tab.dataset.i18nAria=restInterval?'rest.running':'rest.start'; tab.setAttribute('aria-label',t(tab.dataset.i18nAria)); }}
 // Un solo AudioContext, creado en el toque que inicia el descanso: uno nuevo al
 // vencer el timer en segundo plano nace suspendido y el pitido sale mudo — de ahí
 // venía el "a veces suena, a veces no".
@@ -794,7 +797,7 @@ function bottomNav(){ if(window.matchMedia('(min-width:1024px)').matches) return
 function readRestState(){ try{ return JSON.parse(localStorage.getItem(REST_POS_KEY))||{}; }catch{ return {}; } }
 function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s)); }
 (function initRest(){
-  const el=$('#restTimer'), handle=$('#restHandle');
+  const el=$('#restTimer'), chev=$('#restChev'), tab=$('#restTab');
   const st=readRestState();
   // Por defecto: anclado a la derecha, a la altura del último tercio de la pantalla.
   let side = st.side==='left' ? 'left' : 'right';
@@ -808,6 +811,9 @@ function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s));
     el.classList.toggle('side-right',side==='right');
     el.classList.toggle('side-left',side==='left');
     top=clampTop(top); el.style.top=top+'px';
+    chev.setAttribute('aria-expanded',String(!collapsed));
+    chev.dataset.i18nAria = collapsed?'rest.expand':'rest.collapse';
+    chev.setAttribute('aria-label',t(chev.dataset.i18nAria));
   }
   function saveRest(){ saveRestState({side,top,collapsed}); }
   // Plegar y desplegar es un único desliz de la pieza completa: el cuerpo se
@@ -815,18 +821,24 @@ function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s));
   function setCollapsed(next){ if(collapsed===next)return; collapsed=next; place(); saveRest(); }
 
   place();
-  // Teclado: el tirador sigue siendo un botón normal.
-  handle.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setCollapsed(!collapsed); } });
+  // Teclado: cada botón hace lo suyo. El puntero no puede usar `click` (la captura
+  // lo redirige al contenedor), así que se resuelve aparte, más abajo.
+  chev.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setCollapsed(!collapsed); } });
+  tab.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); restInterval?stopRest():startRest(); } });
 
   // Arrastre: vertical libre; cruzar la mitad de la pantalla lo cambia de lado.
   // El toque sin arrastre se resuelve aquí y no con un `click`: al capturar el
   // puntero el navegador dispara el click sobre el contenedor, no sobre el hijo.
-  let dragging=false, sx=0, sy=0, startTop=0, moved=false, onNumber=false, onHandle=false;
+  // Plegado, el número de la pestaña es el mismo contador: tocarlo arranca o para
+  // el descanso, igual que el número grande, y la pieza no se mueve. Desplegar pasó
+  // a ser cosa de la flecha, que es lo único que sigue asomando al desplegarse.
+  let dragging=false, sx=0, sy=0, startTop=0, moved=false, onNumber=false, onHandle=false, onChev=false;
   el.addEventListener('pointerdown',e=>{
     if(e.target.closest('.rest-actions'))return;           // los presets funcionan normal
     dragging=true; moved=false;
-    onHandle=!!e.target.closest('.rest-handle');
-    onNumber=!collapsed&&!!e.target.closest('.rest-info');
+    onChev=!!e.target.closest('.rest-chev');
+    onHandle=!onChev&&!!e.target.closest('.rest-handle');
+    onNumber=(!collapsed&&!!e.target.closest('.rest-info'))||(collapsed&&onHandle);
     sx=e.clientX; sy=e.clientY; startTop=top; el.setPointerCapture(e.pointerId);
     el.classList.add('dragging');
   });
@@ -843,9 +855,10 @@ function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s));
   const endPointer=()=>{
     if(!dragging)return; dragging=false; el.classList.remove('dragging');
     if(moved) saveRest();
-    else if(onHandle) setCollapsed(!collapsed);            // toque en el tirador: abre o cierra
-    else if(onNumber) restInterval?stopRest():startRest();
-    onHandle=onNumber=false;
+    else if(onChev) setCollapsed(!collapsed);              // la flecha abre y cierra
+    else if(onNumber) restInterval?stopRest():startRest(); // el número, plegado o no, arranca y para
+    else if(onHandle) setCollapsed(!collapsed);
+    onHandle=onNumber=onChev=false;
   };
   el.addEventListener('pointerup',endPointer); el.addEventListener('pointercancel',endPointer);
 

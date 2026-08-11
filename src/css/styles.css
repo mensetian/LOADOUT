@@ -41,14 +41,19 @@
 .rest-timer.dragging{cursor:grabbing;box-shadow:0 18px 46px rgba(0,0,0,.55);transition:none}
 .rest-timer.is-running{box-shadow:0 10px 34px rgba(0,0,0,.45),0 0 0 1px var(--hot)}
 /* Tirador: el mismo contador, en vertical, y una flecha que indica hacia dónde va */
-.rest-handle{flex:none;width:var(--handle);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 0;border:0;background:transparent;cursor:pointer}
+.rest-handle{flex:none;width:var(--handle);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 0;border:0;background:transparent}
+/* Dos zonas distintas: el número arranca y para el descanso, la flecha abre y cierra */
+.rest-tab{display:flex;align-items:center;justify-content:center;width:100%;padding:0;border:0;background:transparent;cursor:pointer}
+.rest-timer:not(.is-collapsed) .rest-tab{pointer-events:none}
 .rest-handle strong{writing-mode:vertical-rl;font:800 17px var(--display);letter-spacing:.06em;color:var(--muted);font-variant-numeric:tabular-nums;max-height:90px;margin-bottom:7px;overflow:hidden;transition:max-height .26s cubic-bezier(.22,1,.36,1),margin-bottom .26s cubic-bezier(.22,1,.36,1),opacity .16s ease,color .2s}
 /* Desplegado sobra: el número grande ya está a la vista, así que se repliega */
 .rest-timer:not(.is-collapsed) .rest-handle strong{max-height:0;margin-bottom:0;opacity:0}
 .rest-timer.is-running .rest-handle strong{color:var(--hot)}
-.rest-chev{color:var(--muted);font-size:14px;line-height:1;transition:transform .26s cubic-bezier(.22,1,.36,1)}
+/* Área de toque generosa: es el único camino para abrir el cajón */
+.rest-chev{display:block;width:100%;padding:8px 0;border:0;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;transition:transform .26s cubic-bezier(.22,1,.36,1),color .2s}
 .rest-timer.side-right:not(.is-collapsed) .rest-chev,.rest-timer.side-left.is-collapsed .rest-chev{transform:rotate(180deg)}
-.rest-handle:hover .rest-chev,.rest-handle:hover strong{color:var(--hot)}
+.rest-chev:hover{color:var(--hot)}
+.rest-tab:hover strong{color:var(--hot)}
 /* Cuerpo: lo que se esconde tras el borde al plegar */
 .rest-body{display:flex;align-items:center;gap:12px;padding:12px 16px}
 .side-right .rest-body{padding-left:4px}
