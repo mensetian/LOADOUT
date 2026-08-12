@@ -473,3 +473,13 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 #sessionView.is-editing .eyebrow::before{content:'';display:inline-block;width:6px;height:6px;margin-right:7px;border-radius:50%;background:var(--red);vertical-align:middle}
 #sessionView.is-editing .finish-button{box-shadow:0 0 0 2px var(--red),0 10px 26px -10px color-mix(in srgb,var(--red) 55%,transparent)}
 #sessionView.is-editing .finish-button:hover{box-shadow:0 0 0 2px var(--red),0 12px 30px -8px color-mix(in srgb,var(--red) 65%,transparent)}
+
+/* Acordeón de movimientos. Plegado ya no significa "hecho": lo plegado es solo
+   dónde no estás parado, y el verde queda reservado para lo que terminaste. */
+.exercise-card.is-collapsed{cursor:pointer;border-left-color:#4a4d4e}
+.exercise-card.is-collapsed:hover{border-left-color:var(--hot)}
+.exercise-card.is-collapsed .exercise-name{pointer-events:none}
+.exercise-card.is-done{border-left-color:var(--hot2)}
+.exercise-card.is-done .collapse-exercise{color:var(--hot2)}
+.exercise-card.is-done.is-collapsed .exercise-summary{color:var(--hot2)}
+.exercise-card.is-collapsed:not(.is-done) .collapse-exercise{color:var(--ink)}

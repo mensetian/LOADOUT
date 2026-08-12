@@ -116,7 +116,7 @@ function mergeTemplates(local, remote) {
 function collectDraft() {
   const exercises = $$('.exercise-card').map(card => ({
     name: $('.exercise-name', card).value,
-    done: card.classList.contains('is-collapsed'),
+    done: card.classList.contains('is-done'),
     sets: $$('.set-row', card).map(r => {
       const set = { weight: $('.set-weight', r).value, reps: $('.set-reps', r).value };
       if (r.dataset.targetWeight != null) set.targetWeight = num(r.dataset.targetWeight);
@@ -254,7 +254,8 @@ async function openRoutine(name) {
   $('#sessionName').value=name; if(activeSession) activeSession.name=name; syncPinButton();
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   // Se cargan colapsados: solo trabajas uno a la vez, lo abres cuando te toca.
-  prev.exercises.forEach(e=>addExercise({name:e.name, done:true, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  openFirstPending();
   if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
   saveDraft();
 }
@@ -292,7 +293,8 @@ async function applyTemplate(id) {
   if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
   $('#sessionName').value=tpl.name; if(activeSession) activeSession.name=tpl.name; syncPinButton();
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
-  (tpl.exercises||[]).forEach(e=>addExercise({name:e.name, done:true, sets:(e.sets||[]).map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  (tpl.exercises||[]).forEach(e=>addExercise({name:e.name, sets:(e.sets||[]).map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  openFirstPending();
   if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false;
   saveDraft();
 }
@@ -402,12 +404,29 @@ function exerciseSummaryText(card) {
   }).filter(s=>s.w||s.reps);
   return sets.length ? sets.map(s=>`${s.w}×${s.reps}`).join(' · ') : t('exercise.noSets');
 }
-function setCollapsed(card, collapsed) {
+// Plegado y "terminado" eran lo mismo, y por eso una rutina recién cargada ya
+// se contaba entera como hecha. Ahora son dos cosas: `is-collapsed` es dónde
+// estás parado (lo mueve el acordeón) y `is-done` es lo que ya trabajaste.
+function setCollapsed(card, collapsed, done) {
   card.classList.toggle('is-collapsed', collapsed);
+  if (done !== undefined) card.classList.toggle('is-done', done);
   const summary=$('.exercise-summary',card);
   summary.hidden=!collapsed; if(collapsed) summary.textContent=exerciseSummaryText(card);
+  const isDone=card.classList.contains('is-done');
   const btn=$('.collapse-exercise',card);
-  btn.textContent=collapsed?'↺':'✓'; btn.title=t(collapsed?'exercise.expand':'exercise.collapse');
+  btn.textContent=isDone?'↺':'✓'; btn.title=t(isDone?'exercise.expand':'exercise.collapse');
+}
+// Un solo movimiento abierto a la vez: con seis ejercicios desplegados el móvil
+// era un scroll interminable y se perdía de vista en cuál estabas.
+function openOnly(card) {
+  $$('.exercise-card').forEach(c => { if (c !== card) setCollapsed(c, true); });
+  if (card) setCollapsed(card, false);
+  return card;
+}
+// Al entrar a una sesión siempre queda uno listo para escribir: el primero que
+// falta. Si ya está todo hecho, no se abre ninguno.
+function openFirstPending() {
+  openOnly($$('.exercise-card').find(c => !c.classList.contains('is-done')) || null);
 }
 function addExercise(data = {}) {
   $('#sessionEmpty').hidden = true;
@@ -433,9 +452,23 @@ function addExercise(data = {}) {
   nameInput.onblur = () => { updateLast(card); setTimeout(()=>{ acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); }, 150); };
   nameInput.onkeydown = e => { if (e.key==='Escape') { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); } };
   $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); saveDraft(); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
-  $('.collapse-exercise',card).onclick = () => { setCollapsed(card, !card.classList.contains('is-collapsed')); saveDraft(); };
+  $('.collapse-exercise',card).onclick = e => {
+    e.stopPropagation();
+    if (card.classList.contains('is-done')) { card.classList.remove('is-done'); openOnly(card); }
+    else setCollapsed(card, true, true);
+    saveDraft();
+  };
+  // Tocar la tarjeta plegada en cualquier parte la abre y pliega las demás: en
+  // el gimnasio se apunta con el pulgar, apuntarle a la flecha es pedir mucho.
+  card.addEventListener('click', e => {
+    if (!card.classList.contains('is-collapsed')) return;
+    if (e.target.closest('.collapse-exercise, .remove-exercise')) return;
+    openOnly(card);
+    saveDraft();
+  });
   $('#exerciseList').append(card); updateLast(card);
-  if(data.done) setCollapsed(card, true);
+  setCollapsed(card, true, !!data.done); // quién queda abierto lo decide el acordeón
+  return card;
 }
 // Deja los pesos en la unidad activa para pintarlos. La sesión puede venir del
 // historial (números en kg) o de un borrador (texto tecleado en `_unit`).
@@ -462,7 +495,7 @@ function renderActiveSession() {
   $('#sessionDate').value = activeSession.date || todayKey();
   $('#deleteSession').hidden = !saved;
   refreshDatalists(); syncPinButton();
-  if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else exercisesForRender(activeSession).forEach(addExercise);
+  if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else { exercisesForRender(activeSession).forEach(e=>addExercise(e)); openFirstPending(); }
   restoring = false;
   renderLiveSummary();
 }
@@ -494,7 +527,7 @@ function renderLiveSummary() {
   if (!cards.length) { root.hidden = true; return; }
   let done = 0, sets = 0, vol = 0;
   cards.forEach(card => {
-    if (card.classList.contains('is-collapsed')) done++;
+    if (card.classList.contains('is-done')) done++;
     $$('.set-row', card).forEach(r => {
       const w = num($('.set-weight', r).value) || parseFloat($('.set-weight', r).placeholder) || 0;
       const reps = num($('.set-reps', r).value) || parseFloat($('.set-reps', r).placeholder) || 0;
@@ -983,7 +1016,7 @@ function renderTodayDates(){
   $('#today').textContent=new Intl.DateTimeFormat(dateLocale(),{weekday:'long',day:'numeric',month:'long'}).format(new Date());
 }
 renderTodayDates();
-$('#addExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#emptyAddExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#finishSession').onclick=finishSession;
+$('#addExercise').onclick=()=>{ openOnly(addExercise()); saveDraft(); }; $('#emptyAddExercise').onclick=()=>{ openOnly(addExercise()); saveDraft(); }; $('#finishSession').onclick=finishSession;
 $('#pinRoutine').onclick=toggleCurrentPin;
 $('#exampleRoutine').onclick=loadExampleRoutine;
 // Cambiar de unidad no toca el historial (siempre en kg): basta repintar, pero
