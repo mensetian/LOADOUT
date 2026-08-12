@@ -464,3 +464,12 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 .hs-actions{gap:8px}
 .hs-actions .danger-btn{border-color:#5d6364;color:var(--muted)}
 .hs-actions .danger-btn:hover{border-color:var(--red);color:#fff;background:var(--red)}
+
+/* Editar un entrenamiento guardado se veía idéntico a empezar uno nuevo. La
+   franja roja en el encabezado y el aro del botón avisan, sin leer nada, que
+   esto pisa un registro que ya existe en vez de crear otro. */
+#sessionView.is-editing .section-heading{padding-left:14px;border-left:3px solid var(--red)}
+#sessionView.is-editing .eyebrow{color:var(--red)}
+#sessionView.is-editing .eyebrow::before{content:'';display:inline-block;width:6px;height:6px;margin-right:7px;border-radius:50%;background:var(--red);vertical-align:middle}
+#sessionView.is-editing .finish-button{box-shadow:0 0 0 2px var(--red),0 10px 26px -10px color-mix(in srgb,var(--red) 55%,transparent)}
+#sessionView.is-editing .finish-button:hover{box-shadow:0 0 0 2px var(--red),0 12px 30px -8px color-mix(in srgb,var(--red) 65%,transparent)}

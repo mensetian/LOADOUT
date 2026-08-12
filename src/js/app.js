@@ -457,16 +457,35 @@ function renderActiveSession() {
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   if (!activeSession) activeSession = makeSession();
   const saved = sessions.some(s=>s.id===activeSession.id);
-  $('#sessionTitle').textContent = saved ? t('session.editing',{date:dateFmt(activeSession.date)}) : t('session.current');
+  paintSessionChrome();
   $('#sessionName').value = activeSession.name || '';
   $('#sessionDate').value = activeSession.date || todayKey();
   $('#deleteSession').hidden = !saved;
   refreshDatalists(); syncPinButton();
   if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else exercisesForRender(activeSession).forEach(addExercise);
-  // Con el capturador en modo cardio el encabezado es suyo, no el de la sesión de fuerza.
-  if (captureMode === 'cardio') $('#sessionTitle').textContent = t('cardio.title');
   restoring = false;
   renderLiveSummary();
+}
+// Editar un entrenamiento ya guardado se veía igual que empezar uno nuevo, y el
+// botón seguía diciendo "finalizar": parecía que iba a crear otro registro. Acá
+// se marca el encabezado y se cambia la etiqueta a "guardar cambios".
+// Se escribe también data-i18n para que un cambio de idioma no lo pise.
+function paintSessionChrome() {
+  const editing = !!activeSession && captureMode !== 'cardio' && sessions.some(s => s.id === activeSession.id);
+  const title = $('#sessionTitle'), eyebrow = $('#sessionEyebrow'), label = $('#finishSessionLabel');
+  // Con el capturador en modo cardio el encabezado es suyo, no el de la sesión de fuerza.
+  if (captureMode === 'cardio') {
+    title.textContent = t('cardio.title');
+  } else {
+    title.textContent = editing
+      ? t('session.editing', { date: dateFmt(activeSession?.date || todayKey()) })
+      : t('session.current');
+  }
+  eyebrow.dataset.i18n = editing ? 'session.eyebrowEditing' : 'session.eyebrow';
+  eyebrow.textContent = t(eyebrow.dataset.i18n);
+  label.dataset.i18n = editing ? 'session.saveEdit' : 'session.finish';
+  label.textContent = t(label.dataset.i18n);
+  $('#sessionView').classList.toggle('is-editing', editing);
 }
 // Panel lateral en vivo (desktop) / resumen sobre "Finalizar" (móvil).
 function renderLiveSummary() {

@@ -157,10 +157,7 @@ function setCaptureMode(mode) {
     b.setAttribute('aria-pressed', on);
   });
   // El botón "Finalizar sesión" y el resumen en vivo son de fuerza: estorban en cardio.
-  document.querySelector('#sessionTitle').textContent = captureMode === 'cardio'
-    ? t('cardio.title')
-    : t(sessions.some(s => s.id === activeSession?.id) ? 'session.editing' : 'session.current',
-        { date: dateFmt(activeSession?.date || todayKey()) });
+  paintSessionChrome();
 }
 
 // --- Ficha para el LOG ------------------------------------------------------
