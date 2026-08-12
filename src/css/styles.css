@@ -503,8 +503,8 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 .streak-bar .sb-cap{color:var(--muted);font:10px var(--mono);letter-spacing:.14em}
 .streak-bar .sb-value{color:var(--hot);font:500 29px var(--mono);line-height:1;letter-spacing:-.04em}
 .streak-bar .sb-unit{color:var(--muted);font:700 10px var(--mono);font-style:normal;letter-spacing:.1em}
-.streak-bar.is-cold .sb-value{color:var(--muted)}
-.streak-bar .sb-cold{flex:0 0 auto;color:var(--hot);font:700 10px var(--mono);letter-spacing:.1em}
+/* Sin racha, el rótulo pasa a ser la invitación, y va en el color de acento. */
+.streak-bar.is-cold .sb-unit{color:var(--hot)}
 /* Con tope: sin él, en escritorio los siete días se estiran hasta parecer botones. */
 .streak-bar .week-cal{flex:1;min-width:0;max-width:460px;margin:0}
 /* Mismo quiebre que .topbar: si no, las dos filas del header se desalinean. */
@@ -516,7 +516,6 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
   .streak-bar .sb-streak{gap:7px;padding-left:12px}
   .streak-bar .sb-cap{letter-spacing:.06em}
   .streak-bar .sb-value{font-size:23px}
-  .streak-bar .sb-cold{display:none}
   .streak-bar .week-cal{gap:5px}
   .streak-bar .week-cal .wd{height:26px;font-size:11px}
 }

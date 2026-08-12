@@ -615,11 +615,13 @@ function renderStreak() {
     return `<span class="${cls}"${tip}>${d.letter}</span>`;
   }).join('');
   week.setAttribute('aria-label',t('streak.week',{n:trained}));
-  const n=weekStreak();
+  // Sin racha no se muestra un "0": el hueco lo aprovecha mejor la invitación,
+  // y de paso desaparece el cero cruzado de DM Mono, que a 29px parece un símbolo.
+  const n=weekStreak(), cold=n===0;
   $('#streakValue').textContent=n;
-  $('#streakUnit').textContent=t(n===1?'streak.unit1':'streak.unit');
-  $('#streakCold').hidden=n>0;
-  $('#streakBar')?.classList.toggle('is-cold',n===0);
+  $('#streakValue').hidden=cold;
+  $('#streakUnit').textContent=cold?t('streak.cold'):t(n===1?'streak.unit1':'streak.unit');
+  $('#streakBar')?.classList.toggle('is-cold',cold);
 }
 // Tendencia de fuerza y de carga: dos tarjetas al frente de MÉTRICAS.
 function renderTrends() {
