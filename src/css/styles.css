@@ -95,7 +95,7 @@
   .finish-button{width:100%;padding:18px;font-size:13px;text-align:center}
   .routine-bar{gap:8px}
   .routine-bar input{width:100%}
-  .routine-bar #loadRoutine,.routine-bar #clearSession{flex:1}
+  .routine-bar #pinRoutine,.routine-bar #clearSession{flex:1}
   /* Objetivos táctiles más grandes */
   .add-set{padding:12px 0}
   .tabs{gap:22px}
@@ -397,14 +397,24 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 /* ==========================================================================
    PLANTILLAS DE RUTINA · secciones del selector + onboarding del primer uso
    ========================================================================== */
-.routine-group{position:sticky;top:0;z-index:1;margin:0;padding:9px 14px 6px;background:var(--panel);color:var(--muted);font:10px var(--mono);letter-spacing:.12em}
-.routine-option.is-template .routine-option-name::before{content:'◆ ';color:var(--hot);font-size:.8em}
-.routine-option.is-template .routine-option-meta{color:var(--hot2)}
+/* Fila = rutina + su chincheta. El borde lo lleva la fila, no el botón, para
+   que la línea llegue de lado a lado con la chincheta dentro. */
+.routine-row{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+.routine-row:last-child{border-bottom:0}
+.routine-row .routine-option{flex:1;min-width:0;border-bottom:0}
+/* La chincheta encendida a la derecha y la palabra "fijada" en el detalle ya
+   marcan el estado: repetir el 📌 en el nombre solo duplicaba el icono. */
+.routine-row.is-pinned .routine-option-meta{color:var(--hot2)}
+/* Apagada mientras no esté fijada: se ve que se puede tocar, sin competir con
+   el nombre de la rutina, que es lo que se viene a leer. */
+.routine-pin{flex:0 0 auto;padding:0 14px;border:0;border-left:1px solid var(--line);background:transparent;font-size:15px;line-height:1;cursor:pointer;opacity:.3;filter:grayscale(1)}
+.routine-pin[aria-pressed="true"]{opacity:1;filter:none}
+.routine-pin:hover,.routine-pin:focus-visible{opacity:1}
+#pinRoutine.is-pinned{border-color:var(--hot);color:var(--hot)}
 .onboarding{width:100%;max-width:420px;margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
 .onboarding-steps{margin:0 0 18px;padding:0;list-style:none;counter-reset:ob;display:grid;gap:10px;text-align:left}
 .onboarding-steps li{position:relative;padding-left:30px;color:var(--muted);font:11px/1.5 var(--mono)}
 .onboarding-steps li::before{counter-increment:ob;content:counter(ob,decimal-leading-zero);position:absolute;left:0;top:0;color:var(--hot);font:700 11px var(--mono)}
-@media(max-width:720px){.routine-bar #saveTemplate{flex:1}}
 
 /* ==========================================================================
    AJUSTES · dos columnas en desktop

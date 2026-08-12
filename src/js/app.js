@@ -190,28 +190,87 @@ function daysAgoLabel(dateKey) {
   const months=Math.floor(days/30);
   return months===1 ? t('routine.monthAgo') : t('routine.monthsAgo',{n:months});
 }
-// El panel muestra dos bloques: las PLANTILLAS (planes fijos que tú defines) y
-// las RECIENTES (rutinas deducidas de lo que ya entrenaste).
-function renderRoutinePanel(filter='') {
+// Una rutina es una sola cosa. Puede estar fijada (📌), y entonces sus
+// movimientos son un plan que tú decides y que no cambia solo; si no lo está,
+// se deduce de la última vez que la entrenaste. Antes eran dos listas
+// separadas —PLANTILLAS y RECIENTES— con dos botones distintos de "cargar", y
+// desde fuera nadie distinguía cuál usar: el resultado era el mismo casi
+// siempre. Fijar es ahora una propiedad de la rutina, no otro tipo de objeto.
+const pinnedFor = name => templates.find(x=>(x.name||'').trim().toLowerCase()===(name||'').trim().toLowerCase());
+// Fusiona lo fijado con lo entrenado en una lista sola, sin repetir nombres.
+// Las fijadas van primero; el resto, por lo más reciente.
+function routineEntries(filter='') {
   const term=filter.trim().toLowerCase();
-  const tpls=templates.filter(x=>(x.name||'').toLowerCase().includes(term));
-  const items=routineSummaries().filter(r=>r.name.toLowerCase().includes(term));
+  const byKey=new Map();
+  for (const tpl of templates) {
+    const name=(tpl.name||'').trim(); if(!name) continue;
+    byKey.set(name.toLowerCase(), {name, pinned:true, tplId:tpl.id, moves:(tpl.exercises||[]).length});
+  }
+  for (const r of routineSummaries()) {
+    const key=r.name.toLowerCase(); const prev=byKey.get(key);
+    if(prev) Object.assign(prev, {date:r.date, times:r.times});
+    else byKey.set(key, {...r, pinned:false});
+  }
+  return [...byKey.values()]
+    .filter(r=>r.name.toLowerCase().includes(term))
+    .sort((a,b)=> (b.pinned-a.pinned) || (b.date||'').localeCompare(a.date||'') || a.name.localeCompare(b.name));
+}
+// La línea de detalle dice las dos cosas que importan: si es un plan fijo y
+// cuánto hace que la entrenaste. Una fijada que nunca hiciste solo cuenta sus
+// movimientos; una sin fijar mantiene el detalle de siempre.
+function routineMeta(r) {
+  const trained = r.date
+    ? `${daysAgoLabel(r.date)} · ${r.moves} ${t('routine.moves')} · ${r.times} ${r.times===1?t('routine.time'):t('routine.times')}`
+    : '';
+  if(!r.pinned) return trained;
+  return trained ? `${t('routine.pinnedPrefix')} · ${trained}` : t('routine.pinnedMeta',{n:r.moves});
+}
+function renderRoutinePanel(filter='') {
+  const items=routineEntries(filter);
   const panel=$('#routinePanel');
-  if(!tpls.length && !items.length){
+  if(!items.length){
     panel.innerHTML=`<p class="routine-empty">${sessions.some(s=>(s.name||'').trim())
       ? t('routine.empty.some')
       : t('routine.empty.none')}</p>`;
     return;
   }
-  const group=label=>`<p class="routine-group">${label}</p>`;
-  const tplHtml=tpls.length
-    ? group(t('routine.group.templates'))+tpls.map(x=>`<button type="button" class="routine-option is-template" role="option" data-template="${escapeHtml(x.id)}"><span class="routine-option-name">${escapeHtml(x.name)}</span><span class="routine-option-meta">${t('routine.templateMeta',{n:(x.exercises||[]).length})}</span></button>`).join('')
-    : '';
-  const recentHtml=items.length
-    ? (tpls.length?group(t('routine.group.recent')):'')+items.map(r=>`<button type="button" class="routine-option" role="option" data-name="${escapeHtml(r.name)}"><span class="routine-option-name">${escapeHtml(r.name)}</span><span class="routine-option-meta">${daysAgoLabel(r.date)} · ${r.moves} ${t('routine.moves')} · ${r.times} ${r.times===1?t('routine.time'):t('routine.times')}</span></button>`).join('')
-    : '';
-  panel.innerHTML=tplHtml+recentHtml;
-  $$('.routine-option',panel).forEach(b=>b.onclick=()=> b.dataset.template ? applyTemplate(b.dataset.template) : pickRoutine(b.dataset.name));
+  panel.innerHTML=items.map(r=>`<div class="routine-row${r.pinned?' is-pinned':''}">`
+    +`<button type="button" class="routine-option" role="option" data-name="${escapeHtml(r.name)}"><span class="routine-option-name">${escapeHtml(r.name)}</span><span class="routine-option-meta">${routineMeta(r)}</span></button>`
+    +`<button type="button" class="routine-pin" data-pin="${escapeHtml(r.name)}" aria-pressed="${r.pinned}" title="${r.pinned?t('routine.unpin'):t('routine.pin')}" aria-label="${t('routine.pinAria')}">📌</button>`
+    +`</div>`).join('');
+  $$('.routine-option',panel).forEach(b=>b.onclick=()=>openRoutine(b.dataset.name));
+  $$('.routine-pin',panel).forEach(b=>b.onclick=e=>{ e.stopPropagation(); togglePin(b.dataset.pin); });
+}
+// Abrir una rutina carga sus movimientos, venga el plan de estar fijado o de la
+// última sesión. Un solo gesto, un solo resultado: por eso desapareció el botón
+// "Cargar rutina anterior", que hacía justo esto pero por otro camino.
+async function openRoutine(name) {
+  const tpl=pinnedFor(name);
+  if(tpl) return applyTemplate(tpl.id);
+  const prev=lastSessionByRoutine(name);
+  closeRoutinePanel();
+  if(!prev){ pickRoutine(name); return; }
+  if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
+  $('#sessionName').value=name; if(activeSession) activeSession.name=name; syncPinButton();
+  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
+  // Se cargan colapsados: solo trabajas uno a la vez, lo abres cuando te toca.
+  prev.exercises.forEach(e=>addExercise({name:e.name, done:true, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
+  saveDraft();
+}
+// El 📌 de cada fila fija con lo que ya entrenaste esa vez; el de la barra usa
+// lo que hay en pantalla. Quitar el pin nunca borra entrenamientos.
+async function togglePin(name) {
+  const tpl=pinnedFor(name);
+  if(tpl){ await deleteTemplate(tpl.id); renderRoutinePanel($('#sessionName').value); syncPinButton(); return; }
+  const prev=lastSessionByRoutine(name);
+  if(!prev){ await showAlert(t('template.needSession',{name})); return; }
+  const exercises=prev.exercises.map(e=>({name:e.name, sets:(e.sets||[]).map(s=>({weight:s.weight, reps:s.reps}))})).filter(e=>e.name&&e.sets.length);
+  if(!exercises.length){ await showAlert(t('template.needSession',{name})); return; }
+  templates.push(makeTemplate(name.trim(), exercises));
+  saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.();
+  renderRoutinePanel($('#sessionName').value); syncPinButton();
+  await showAlert(t('template.saved',{name}));
 }
 function openRoutinePanel() {
   renderRoutinePanel($('#sessionName').value);
@@ -223,7 +282,7 @@ function closeRoutinePanel() {
 function pickRoutine(name) {
   $('#sessionName').value=name;
   if(activeSession) activeSession.name=name;
-  closeRoutinePanel();
+  syncPinButton(); closeRoutinePanel();
 }
 // Cargar una plantilla llena la sesión con sus movimientos colapsados y sus
 // pesos previstos como marca a superar, igual que "cargar rutina anterior".
@@ -231,7 +290,7 @@ async function applyTemplate(id) {
   const tpl=templates.find(x=>x.id===id); if(!tpl) return;
   closeRoutinePanel();
   if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
-  $('#sessionName').value=tpl.name; if(activeSession) activeSession.name=tpl.name;
+  $('#sessionName').value=tpl.name; if(activeSession) activeSession.name=tpl.name; syncPinButton();
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
   (tpl.exercises||[]).forEach(e=>addExercise({name:e.name, done:true, sets:(e.sets||[]).map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
   if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false;
@@ -251,17 +310,29 @@ function collectTemplateExercises() {
     }).filter(s=>s.weight||s.reps),
   })).filter(e=>e.name && e.sets.length);
 }
-async function saveCurrentAsTemplate() {
+// El botón de la barra refleja el estado de la rutina que tienes escrita: fija
+// la de ahora, o la suelta si ya lo estaba. Sin él, fijar solo se podría hacer
+// desde el panel, y justo al terminar de armar la sesión es cuando apetece.
+function syncPinButton() {
+  const btn=$('#pinRoutine'); if(!btn) return;
+  const pinned=!!pinnedFor($('#sessionName').value);
+  btn.textContent=pinned ? t('routine.unpin') : t('routine.pin');
+  btn.setAttribute('aria-pressed', String(pinned));
+  btn.classList.toggle('is-pinned', pinned);
+}
+async function toggleCurrentPin() {
   const name=$('#sessionName').value.trim();
   if(!name){ await showAlert(t('template.needName')); return; }
+  const existing=pinnedFor(name);
   const exercises=collectTemplateExercises();
+  // Con la sesión vacía, el botón solo sirve para soltar lo que ya estaba fijo.
+  if(existing && !exercises.length){ await deleteTemplate(existing.id); syncPinButton(); return; }
   if(!exercises.length){ await showAlert(t('template.needExercises')); return; }
-  const existing=templates.find(x=>(x.name||'').trim().toLowerCase()===name.toLowerCase());
   if(existing){
     if(!(await showConfirm(t('template.overwrite',{name}), {okText:t('template.overwriteOk')}))) return;
     Object.assign(existing, {name, exercises, updatedAt:new Date().toISOString()});
   } else templates.push(makeTemplate(name, exercises));
-  saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.();
+  saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.(); syncPinButton();
   await showAlert(t('template.saved',{name}));
 }
 // --- Primer arranque --------------------------------------------------------
@@ -291,7 +362,7 @@ async function deleteTemplate(id) {
   if(!(await showConfirm(t('template.deleteConfirm',{name:tpl.name}), {danger:true, okText:t('template.deleteOk')}))) return;
   markDeleted(id);
   templates=templates.filter(x=>x.id!==id);
-  saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.();
+  saveTemplates(); window.renderConfig?.(); window.driveAutoSync?.(); syncPinButton();
 }
 // Navegación con flechas para escritorio.
 function moveRoutineHighlight(step) {
@@ -390,7 +461,7 @@ function renderActiveSession() {
   $('#sessionName').value = activeSession.name || '';
   $('#sessionDate').value = activeSession.date || todayKey();
   $('#deleteSession').hidden = !saved;
-  refreshDatalists();
+  refreshDatalists(); syncPinButton();
   if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else exercisesForRender(activeSession).forEach(addExercise);
   // Con el capturador en modo cardio el encabezado es suyo, no el de la sesión de fuerza.
   if (captureMode === 'cardio') $('#sessionTitle').textContent = t('cardio.title');
@@ -894,7 +965,7 @@ function renderTodayDates(){
 }
 renderTodayDates();
 $('#addExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#emptyAddExercise').onclick=()=>{ addExercise(); saveDraft(); }; $('#finishSession').onclick=finishSession;
-$('#saveTemplate').onclick=saveCurrentAsTemplate;
+$('#pinRoutine').onclick=toggleCurrentPin;
 $('#exampleRoutine').onclick=loadExampleRoutine;
 // Cambiar de unidad no toca el historial (siempre en kg): basta repintar, pero
 // hay que reinterpretar lo ya tecleado, que estaba en la unidad anterior.
@@ -906,28 +977,18 @@ function setUnit(next) {
   renderActiveSession(); updateDashboard(); saveDraft();
 }
 $('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; saveDraft(); };
-$('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); saveDraft(); };
+$('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); syncPinButton(); saveDraft(); };
 // Cualquier tecleo en series/nombres del ejercicio persiste el borrador.
 $('#exerciseList').addEventListener('input', saveDraft);
 $('#sessionName').onfocus=openRoutinePanel;
 $('#sessionName').onkeydown=e=>{
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); if($('#routinePanel').hidden)openRoutinePanel(); moveRoutineHighlight(e.key==='ArrowDown'?1:-1); return; }
-  if(e.key==='Enter'){ const active=$('.routine-option.is-active'); if(active){ e.preventDefault(); pickRoutine(active.dataset.name); } else closeRoutinePanel(); return; }
+  if(e.key==='Enter'){ const active=$('.routine-option.is-active'); if(active){ e.preventDefault(); openRoutine(active.dataset.name); } else closeRoutinePanel(); return; }
   if(e.key==='Escape') closeRoutinePanel();
 };
 $('#routineToggle').onclick=()=>{ if($('#routinePanel').hidden){ openRoutinePanel(); $('#sessionName').focus(); } else closeRoutinePanel(); };
 // Cerrar al tocar fuera del campo.
 document.addEventListener('click',e=>{ if(!e.target.closest('.routine-field')) closeRoutinePanel(); });
-$('#loadRoutine').onclick=async ()=>{
-  const prev=lastSessionByRoutine($('#sessionName').value);
-  if(!prev){ await showAlert(t('routine.loadNeedName')); return; }
-  if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')})))return;
-  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
-  // Se cargan colapsados: solo trabajas uno a la vez, lo abres cuando te toca.
-  prev.exercises.forEach(e=>addExercise({name:e.name, done:true, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
-  if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
-  saveDraft();
-};
 $('#clearSession').onclick=async ()=>{
   if(!$('#exerciseList').children.length)return;
   if(!(await showConfirm(t('session.clearConfirm'), {danger:true, okText:t('session.clearOk')})))return;
