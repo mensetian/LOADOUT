@@ -494,18 +494,27 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 
 /* Barra de constancia: lo único que acompaña a todas las vistas. Los números
    de rendimiento se fueron a MÉTRICAS; acá arriba solo importa volver mañana. */
-.streak-bar{display:flex;align-items:center;gap:16px;margin-top:24px;padding:13px 17px;border:1px solid var(--line);border-left:3px solid var(--hot);background:var(--panel)}
-.streak-bar.is-cold{border-left-color:#4a4d4e}
-.streak-bar .sb-streak{display:flex;flex-direction:column;gap:4px;flex:0 0 auto}
-.streak-bar .sb-cap{color:var(--muted);font:10px var(--mono);letter-spacing:.12em}
-.streak-bar .sb-value{display:flex;align-items:baseline;gap:6px;color:var(--hot);font:500 27px var(--mono);line-height:1;letter-spacing:-.05em}
-.streak-bar .sb-value em{color:var(--muted);font:700 10px var(--mono);font-style:normal;letter-spacing:.08em}
+/* Segunda fila del header: misma tinta y mismo margen lateral que la barra de
+   arriba, así deja de leerse como contenido y pasa a ser parte del mueble. */
+.streak-bar{display:flex;align-items:center;gap:16px;width:100%;padding:8px clamp(20px,5vw,80px);border:0;border-bottom:1px solid var(--line);background:var(--bg)}
+/* La racha cierra la barra por la derecha, y en una sola línea: apilar el
+   rótulo sobre un número de 27px los dejaba respirándose encima. */
+.streak-bar .sb-streak{display:flex;align-items:baseline;gap:10px;flex:0 0 auto;margin-left:auto;padding-left:20px;border-left:1px solid var(--line)}
+.streak-bar .sb-cap{color:var(--muted);font:10px var(--mono);letter-spacing:.14em}
+.streak-bar .sb-value{color:var(--hot);font:500 29px var(--mono);line-height:1;letter-spacing:-.04em}
+.streak-bar .sb-unit{color:var(--muted);font:700 10px var(--mono);font-style:normal;letter-spacing:.1em}
 .streak-bar.is-cold .sb-value{color:var(--muted)}
 .streak-bar .sb-cold{flex:0 0 auto;color:var(--hot);font:700 10px var(--mono);letter-spacing:.1em}
 /* Con tope: sin él, en escritorio los siete días se estiran hasta parecer botones. */
 .streak-bar .week-cal{flex:1;min-width:0;max-width:460px;margin:0}
+/* Mismo quiebre que .topbar: si no, las dos filas del header se desalinean. */
+@media(max-width:720px){.streak-bar{padding-right:17px;padding-left:17px}}
 @media(max-width:560px){
-  .streak-bar{gap:12px;padding:11px 13px}
+  .streak-bar{gap:12px;padding:7px 17px}
+  /* Con "12 SEMANAS" al lado, cada punto que le robe la racha se lo quita a
+     la semana, que es lo que de verdad hay que poder leer de un vistazo. */
+  .streak-bar .sb-streak{gap:7px;padding-left:12px}
+  .streak-bar .sb-cap{letter-spacing:.06em}
   .streak-bar .sb-value{font-size:23px}
   .streak-bar .sb-cold{display:none}
   .streak-bar .week-cal{gap:5px}
@@ -516,3 +525,19 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 .trend-grid .summary-card{min-height:0;padding:18px 20px}
 .trend-grid .summary-card strong{margin:8px 0 3px;font-size:32px}
 @media(max-width:560px){.trend-grid{grid-template-columns:1fr}}
+
+/* Fuerza vs cardio dentro de la semana. Los dos pesan igual —los dos sostienen
+   la racha—, así que se diferencian por color, no por "lleno vs vacío". */
+:root{--cardio:#4fd6ff}
+body.dark{--cardio:#3f9aa1}
+.streak-bar .week-cal .wd.is-cardio{background:var(--cardio);border-color:var(--cardio);color:#141414}
+.streak-bar .week-cal .wd.is-both{background:linear-gradient(135deg,var(--hot) 0 50%,var(--cardio) 50% 100%);border-color:var(--hot);color:#141414}
+.streak-bar .week-cal .wd.is-both.today,.streak-bar .week-cal .wd.is-cardio.today{border-color:#141414}
+/* Pegada a la semana, que es lo que explica; la racha se va al otro extremo. */
+.sb-legend{display:flex;align-items:center;gap:13px;flex:0 0 auto;color:var(--muted);font:9px var(--mono);letter-spacing:.08em}
+.sb-legend .lg{display:inline-flex;align-items:center;gap:5px}
+.sb-legend .lg i{font-style:normal}
+.sb-legend .lg-dot{width:9px;height:9px;border-radius:2px}
+.sb-legend .lg-strength{background:var(--hot)}
+.sb-legend .lg-cardio{background:var(--cardio)}
+@media(max-width:720px){.sb-legend{display:none}}

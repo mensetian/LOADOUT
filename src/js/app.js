@@ -561,14 +561,18 @@ function strengthTrend() {
 // igual que uno de barra: si no, la racha castigaría por hacer cardio.
 const trainedDates = () => [...sessions.map(s=>s.date), ...cardio.map(c=>c.date)].filter(Boolean);
 // Semana actual (lunes→domingo) con inicial del día, marcando hoy y futuros.
+// Cada día además dice de qué fue: fuerza, cardio o las dos cosas.
 function weekStrip() {
   const letters=t('week.days').split(' ');
   const today=new Date(), tKey=todayKey();
   const monday=new Date(today); monday.setDate(today.getDate()-((today.getDay()+6)%7));
-  const active=new Set(trainedDates());
+  const lifted=new Set(sessions.map(s=>s.date).filter(Boolean));
+  const moved=new Set(cardio.map(c=>c.date).filter(Boolean));
   const days=[];
   for(let i=0;i<7;i++){ const d=new Date(monday); d.setDate(monday.getDate()+i); const key=keyOf(d);
-    days.push({ key, letter:letters[i]||'', trained:active.has(key), isToday:key===tKey, future:key>tKey }); }
+    const s=lifted.has(key), c=moved.has(key);
+    days.push({ key, letter:letters[i]||'', trained:s||c, kind: s&&c?'both':s?'strength':c?'cardio':null,
+                isToday:key===tKey, future:key>tKey }); }
   return days;
 }
 // Racha: semanas consecutivas (lun-dom) con al menos un entrenamiento.
@@ -603,7 +607,13 @@ function personalRecords() {
 function renderStreak() {
   const week=$('#streakWeek'); if(!week) return;
   const strip=weekStrip(), trained=strip.filter(d=>d.trained).length;
-  week.innerHTML=strip.map(d=>`<span class="wd${d.trained?' on':''}${d.isToday?' today':''}${d.future?' future':''}">${d.letter}</span>`).join('');
+  const kindName=k=>t(k==='both'?'streak.both':k==='cardio'?'capture.cardio':'capture.strength');
+  week.innerHTML=strip.map(d=>{
+    const cls=`wd${d.trained?' on':''}${d.kind?' is-'+d.kind:''}${d.isToday?' today':''}${d.future?' future':''}`;
+    // El título es lo que salva al que no distingue los dos colores.
+    const tip=d.trained?` title="${escapeHtml(kindName(d.kind))}"`:'';
+    return `<span class="${cls}"${tip}>${d.letter}</span>`;
+  }).join('');
   week.setAttribute('aria-label',t('streak.week',{n:trained}));
   const n=weekStreak();
   $('#streakValue').textContent=n;
