@@ -72,25 +72,6 @@ document.querySelector('#themeButton').onclick = () => setTheme(document.body.cl
 // --- Plantillas guardadas ---------------------------------------------------
 // Gestión mínima y suficiente: ver qué contiene cada plan, cargarlo o borrarlo.
 // Crearlas y editarlas se hace desde la sesión, que es donde ya está el trabajo.
-function renderTemplates() {
-  const root = document.querySelector('#templateList');
-  if (!root) return;
-  if (!templates.length) {
-    root.innerHTML = `<div class="config-row"><div><small>${t('config.noTemplates')}</small></div></div>`;
-    return;
-  }
-  root.innerHTML = templates.map(x => {
-    const moves = (x.exercises || []).map(e => e.name).join(' · ');
-    return `<div class="config-row"><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(moves || '—')}</small></div>`
-      + `<div class="backup-actions"><button class="secondary-button" data-use="${escapeHtml(x.id)}">${t('template.use')}</button>`
-      + `<button class="secondary-button danger-btn" data-del="${escapeHtml(x.id)}">${t('template.delete')}</button></div></div>`;
-  }).join('');
-  root.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteTemplate(b.dataset.del));
-  root.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => {
-    document.querySelector('.tab[data-view="session"]')?.click();
-    await applyTemplate(b.dataset.use);
-  });
-}
 
 // --- Almacenamiento del navegador -------------------------------------------
 async function renderStorageInfo() {
@@ -139,7 +120,6 @@ document.querySelector('#wipeData').onclick = async () => {
 // --- Pintado global de la pestaña -------------------------------------------
 function renderConfig() {
   syncPrefUI();
-  renderTemplates();
   renderStorageInfo();
 }
 window.renderConfig = renderConfig;
