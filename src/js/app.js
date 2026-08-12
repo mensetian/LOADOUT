@@ -598,17 +598,28 @@ function personalRecords() {
   });
   return [...map.values()].sort((a,b)=> b.date.localeCompare(a.date) || b.e1rm-a.e1rm);
 }
-function renderSummary() {
+// Lo único que acompaña a todas las vistas: la racha y la semana en curso.
+// Los números de rendimiento viven en MÉTRICAS; acá arriba estorbaban.
+function renderStreak() {
+  const week=$('#streakWeek'); if(!week) return;
+  const strip=weekStrip(), trained=strip.filter(d=>d.trained).length;
+  week.innerHTML=strip.map(d=>`<span class="wd${d.trained?' on':''}${d.isToday?' today':''}${d.future?' future':''}">${d.letter}</span>`).join('');
+  week.setAttribute('aria-label',t('streak.week',{n:trained}));
+  const n=weekStreak();
+  $('#streakValue').textContent=n;
+  $('#streakUnit').textContent=t(n===1?'streak.unit1':'streak.unit');
+  $('#streakCold').hidden=n>0;
+  $('#streakBar')?.classList.toggle('is-cold',n===0);
+}
+// Tendencia de fuerza y de carga: dos tarjetas al frente de MÉTRICAS.
+function renderTrends() {
   const nf=n=>Math.round(n).toLocaleString(dateLocale());
-  const st=strengthTrend(), strengthCard=$('#cardStrength');
+  const st=strengthTrend(), strengthCard=$('#cardStrength'); if(!strengthCard) return;
   if(st){
     const delta = st.pct==null ? `<small>${t('summary.strengthBase')}</small>`
       : `<small class="delta ${st.pct>=0?'up':'down'}">${st.pct>=0?'▲':'▼'} ${Math.abs(st.pct)}% · 30D</small>`;
     strengthCard.innerHTML=`<span>${t('summary.strength')} · ${escapeHtml(st.name)}</span><strong>${nf(toDisplay(st.e1rm))} <em>${unitLabel()}</em></strong>${delta}`;
   } else strengthCard.innerHTML=`<span>${t('summary.strength')}</span><strong>—</strong><small>${t('summary.noData')}</small>`;
-  const strip=weekStrip(), trained=strip.filter(d=>d.trained).length;
-  const cal=strip.map(d=>`<span class="wd${d.trained?' on':''}${d.isToday?' today':''}${d.future?' future':''}">${d.letter}</span>`).join('');
-  $('#cardConsistency').innerHTML=`<span>${t('summary.consistency')}</span><strong>${trained}<em>/7</em></strong><div class="week-cal">${cal}</div><small>${t('summary.streak',{n:weekStreak()})}</small>`;
   const vd=volumeDelta();
   const loadDelta = vd.pct==null ? `<small>${t('summary.loadFirst')}</small>`
     : `<small class="delta neutral">${vd.pct>=0?'▲':'▼'} ${Math.abs(vd.pct)}% ${t('summary.vsPrev')}</small>`;
@@ -621,7 +632,7 @@ function renderPRs() {
   root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${toDisplay(r.set.weight)}×${r.set.reps}</span><strong class="pr-e1rm">${Math.round(toDisplay(r.e1rm))} ${unitLabel()}</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
 }
 function updateDashboard() {
-  renderSummary(); renderHistory(); populateProgress(); renderPRs(); renderCardio(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
+  renderStreak(); renderTrends(); renderHistory(); populateProgress(); renderPRs(); renderCardio(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
 }
 // El LOG agrupa por mes y muestra cada sesión plegada: con muchas sesiones, la
 // lista expandida se volvía un muro de texto imposible de recorrer.
@@ -959,12 +970,6 @@ function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s));
 
   window.addEventListener('resize',place);
 })();
-
-// --- Barra de indicadores colapsable (recordada) ---
-const SUMMARY_KEY='loadout-summary-collapsed';
-function applySummaryCollapsed(c){ $('#summaryWrap')?.classList.toggle('is-collapsed',c); $('#summaryToggle')?.setAttribute('aria-expanded',String(!c)); }
-$('#summaryToggle')?.addEventListener('click',()=>{ const c=!$('#summaryWrap').classList.contains('is-collapsed'); localStorage.setItem(SUMMARY_KEY,c?'1':'0'); applySummaryCollapsed(c); });
-applySummaryCollapsed(localStorage.getItem(SUMMARY_KEY)==='1');
 
 // --- Récords personales ---
 function detectPRs(entry){

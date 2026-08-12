@@ -314,14 +314,6 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 .topbar{padding:0 clamp(20px,5vw,80px)}
 @media(max-width:720px){.topbar{padding:0 17px}}
 
-/* Fix 5 · barra de indicadores colapsable (y recordada) + menos comprimida */
-.summary-wrap{margin-top:28px}
-.summary-wrap .summary-grid{margin-top:0}
-.summary-toggle{display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:4px 0;border:0;background:none;color:var(--muted);font:10px var(--mono);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;min-height:32px}
-.summary-toggle:hover{color:var(--hot)}
-.summary-toggle .st-chev{font-size:12px;transition:transform .2s ease}
-.summary-wrap.is-collapsed .st-chev{transform:rotate(-90deg)}
-.summary-wrap.is-collapsed .summary-grid{display:none}
 @media(max-width:720px){
   .summary-card{min-height:120px;padding:16px 13px}
   .summary-card span{font-size:9px}
@@ -330,13 +322,9 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
   .week-cal{margin:10px 0 7px}
   .week-cal .wd{height:22px}
 }
-/* En móvil, 3 columnas aprietan la semana y parten el "kg".
-   Reflujo: FUERZA + CARGA arriba (media col c/u), CONSTANCIA a todo el ancho. */
+/* En móvil dos columnas parten el "kg": una sola tarjeta por fila. */
 @media(max-width:560px){
-  .summary-grid{grid-template-columns:1fr 1fr}
-  #cardStrength{order:1}
-  #cardLoad{order:2}
-  #cardConsistency{order:3;grid-column:1 / -1;min-height:0}
+  .summary-grid{grid-template-columns:1fr}
   .week-cal{gap:6px;margin:13px 0 9px}
   .week-cal .wd{height:28px;font-size:12px;border-radius:5px}
   .week-cal .wd.today{box-shadow:none}
@@ -503,3 +491,28 @@ body.dark .summary-card.accent strong em,body.dark .summary-card.accent .delta{c
 .exercise-card.is-done .collapse-exercise{color:var(--hot2)}
 .exercise-card.is-done.is-collapsed .exercise-summary{color:var(--hot2)}
 .exercise-card.is-collapsed:not(.is-done) .collapse-exercise{color:var(--ink)}
+
+/* Barra de constancia: lo único que acompaña a todas las vistas. Los números
+   de rendimiento se fueron a MÉTRICAS; acá arriba solo importa volver mañana. */
+.streak-bar{display:flex;align-items:center;gap:16px;margin-top:24px;padding:13px 17px;border:1px solid var(--line);border-left:3px solid var(--hot);background:var(--panel)}
+.streak-bar.is-cold{border-left-color:#4a4d4e}
+.streak-bar .sb-streak{display:flex;flex-direction:column;gap:4px;flex:0 0 auto}
+.streak-bar .sb-cap{color:var(--muted);font:10px var(--mono);letter-spacing:.12em}
+.streak-bar .sb-value{display:flex;align-items:baseline;gap:6px;color:var(--hot);font:500 27px var(--mono);line-height:1;letter-spacing:-.05em}
+.streak-bar .sb-value em{color:var(--muted);font:700 10px var(--mono);font-style:normal;letter-spacing:.08em}
+.streak-bar.is-cold .sb-value{color:var(--muted)}
+.streak-bar .sb-cold{flex:0 0 auto;color:var(--hot);font:700 10px var(--mono);letter-spacing:.1em}
+/* Con tope: sin él, en escritorio los siete días se estiran hasta parecer botones. */
+.streak-bar .week-cal{flex:1;min-width:0;max-width:460px;margin:0}
+@media(max-width:560px){
+  .streak-bar{gap:12px;padding:11px 13px}
+  .streak-bar .sb-value{font-size:23px}
+  .streak-bar .sb-cold{display:none}
+  .streak-bar .week-cal{gap:5px}
+  .streak-bar .week-cal .wd{height:26px;font-size:11px}
+}
+/* Tendencia de fuerza y carga, ya dentro de MÉTRICAS */
+.trend-grid{margin-top:0;margin-bottom:24px;grid-template-columns:repeat(2,1fr)}
+.trend-grid .summary-card{min-height:0;padding:18px 20px}
+.trend-grid .summary-card strong{margin:8px 0 3px;font-size:32px}
+@media(max-width:560px){.trend-grid{grid-template-columns:1fr}}
