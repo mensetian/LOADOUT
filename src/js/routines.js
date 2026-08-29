@@ -42,11 +42,11 @@ function renderRoutines() {
 }
 
 // --- Editor ------------------------------------------------------------------
-// Una fila por movimiento, con sus series como pares peso×reps. Es un editor
-// aparte y no la tarjeta de CAPTURAR: aquella arrastra récords, referencia de la
-// última vez y el acordeón, cosas que acá no significan nada.
+// Una fila por movimiento, con sus series como repeticiones previstas. Es un
+// editor aparte y no la tarjeta de CAPTURAR: aquella arrastra récords,
+// referencia de la última vez y el acordeón, cosas que acá no significan nada.
 function reRow(ex = { name: '', sets: [] }) {
-  const sets = (ex.sets || []).length ? ex.sets : [{ weight: 0, reps: 0 }];
+  const sets = (ex.sets || []).length ? ex.sets : [{ reps: 0 }];
   return `<div class="re-move">`
     + `<div class="re-move-head">`
     + `<input class="re-move-name" list="exerciseNames" autocomplete="off" value="${escapeHtml(ex.name || '')}" data-i18n-placeholder="exercise.namePlaceholder" placeholder="${t('exercise.namePlaceholder')}"/>`
@@ -54,17 +54,26 @@ function reRow(ex = { name: '', sets: [] }) {
     + `<div class="re-sets">${sets.map(reSet).join('')}</div>`
     + `<button class="add-set re-set-add" type="button">${t('set.add')}</button></div>`;
 }
-// El peso se muestra en la unidad elegida, pero se guarda siempre en kg.
-function reSet(s = { weight: 0, reps: 0 }) {
-  const w = s.weight ? toDisplay(s.weight) : '';
+// El plan guarda estructura, no progresión: qué movimientos, cuántas series y
+// con cuántas repeticiones. El peso sale del historial (la última sesión), que
+// es lo que sirve para sobrecarga progresiva; anotarlo acá solo lo dejaba
+// envejecer hasta contradecir lo que ya venías levantando.
+function reSet(s = { reps: 0 }) {
   return `<div class="re-set">`
-    + `<input class="re-set-w" inputmode="decimal" type="text" value="${w}" placeholder="${unit()}"/>`
-    + `<span class="re-x">×</span>`
+    + `<span class="re-n"></span>`
     + `<input class="re-set-r" inputmode="numeric" type="number" min="0" step="1" value="${s.reps || ''}" placeholder="${t('set.repsPlaceholder')}"/>`
+    + `<span class="re-u">${t('set.repsPlaceholder')}</span>`
     + `<button class="remove-set re-set-del" type="button" title="${t('set.removeTitle')}">×</button></div>`;
+}
+// Numera las series de cada movimiento, como en CAPTURAR.
+function numberEditorSets() {
+  document.querySelectorAll('#reList .re-move').forEach(m => {
+    m.querySelectorAll('.re-n').forEach((n, i) => { n.textContent = String(i + 1).padStart(2, '0'); });
+  });
 }
 function bindEditorRows() {
   const list = document.querySelector('#reList');
+  numberEditorSets();
   list.querySelectorAll('.re-move-del').forEach(b => b.onclick = () => { b.closest('.re-move').remove(); });
   list.querySelectorAll('.re-set-add').forEach(b => b.onclick = () => {
     b.previousElementSibling.insertAdjacentHTML('beforeend', reSet());
@@ -73,7 +82,7 @@ function bindEditorRows() {
   list.querySelectorAll('.re-set-del').forEach(b => b.onclick = () => {
     const row = b.closest('.re-set'), box = row.parentElement;
     // Un movimiento sin ninguna serie no se puede guardar: dejamos siempre una.
-    if (box.children.length > 1) row.remove();
+    if (box.children.length > 1) { row.remove(); numberEditorSets(); }
   });
 }
 function openEditor(name) {
@@ -108,9 +117,8 @@ function collectEditor() {
   return [...document.querySelectorAll('#reList .re-move')].map(m => ({
     name: m.querySelector('.re-move-name').value.trim(),
     sets: [...m.querySelectorAll('.re-set')].map(r => ({
-      weight: fromDisplay(num(r.querySelector('.re-set-w').value.trim())),
       reps: num(r.querySelector('.re-set-r').value.trim()),
-    })).filter(s => s.weight || s.reps),
+    })).filter(s => s.reps),
   })).filter(e => e.name && e.sets.length);
 }
 async function saveEditor() {

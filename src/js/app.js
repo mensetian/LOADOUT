@@ -116,7 +116,6 @@ function mergeTemplates(local, remote) {
 function collectDraft() {
   const exercises = $$('.exercise-card').map(card => ({
     name: $('.exercise-name', card).value,
-    done: card.classList.contains('is-done'),
     sets: $$('.set-row', card).map(r => {
       const set = { weight: $('.set-weight', r).value, reps: $('.set-reps', r).value };
       if (r.dataset.targetWeight != null) set.targetWeight = num(r.dataset.targetWeight);
@@ -276,32 +275,21 @@ async function applyTemplate(id) {
   if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
   $('#sessionName').value=tpl.name; if(activeSession) activeSession.name=tpl.name;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
-  // El plan aporta la estructura (ejercicios y series) y el peso de arranque;
-  // la marca a superar es la última sesión, que no se pudre como el plan.
+  // El plan aporta solo estructura: qué movimientos, cuántas series, cuántas
+  // reps. El peso a superar sale siempre de la última sesión.
   (tpl.exercises||[]).forEach(e=>{
     const last=getLastExercise(e.name);
-    addExercise({name:e.name, sets:(e.sets||[]).map((s,i)=>({
-      targetWeight: last?.sets?.[i]?.weight ?? s.weight,
-      targetReps:   last?.sets?.[i]?.reps   ?? s.reps,
-    }))});
+    addExercise({name:e.name, sets:(e.sets||[]).map((s,i)=>{
+      const set={};
+      if (last?.sets?.[i]?.weight != null) set.targetWeight = last.sets[i].weight;
+      const reps = last?.sets?.[i]?.reps ?? s.reps;
+      if (reps != null) set.targetReps = reps;
+      return set;
+    })});
   });
   openFirstPending();
   if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false;
   saveDraft();
-}
-// Para una plantilla vale tanto lo tecleado como lo previsto (los objetivos en
-// gris), así una rutina recién cargada se puede convertir en plan tal cual.
-function collectTemplateExercises() {
-  return $$('.exercise-card').map(card=>({
-    name:$('.exercise-name',card).value.trim(),
-    sets:$$('.set-row',card).map(r=>{
-      const typedW=$('.set-weight',r).value.trim(), typedR=$('.set-reps',r).value.trim();
-      return {
-        weight: typedW ? fromDisplay(num(typedW)) : (r.dataset.targetWeight!=null ? num(r.dataset.targetWeight) : 0),
-        reps:   typedR ? num(typedR)             : (r.dataset.targetReps!=null   ? num(r.dataset.targetReps)   : 0),
-      };
-    }).filter(s=>s.weight||s.reps),
-  })).filter(e=>e.name && e.sets.length);
 }
 // Guardar el plan de una rutina a partir de lo que hay en pantalla. Ya no hay
 // botón para esto en CAPTURAR: crear y editar planes vive en la pestaña
@@ -316,11 +304,11 @@ function saveRoutinePlan(name, exercises) {
 // Una app de registro vacía no explica nada por sí sola: hasta que haya algo
 // guardado, la pantalla vacía enseña los tres pasos y ofrece un plan de ejemplo.
 function exampleTemplateSeed() {
-  const reps=(w,r,n=3)=>Array.from({length:n},()=>({weight:w,reps:r}));
+  const reps=(r,n=3)=>Array.from({length:n},()=>({reps:r}));
   return { name:t('example.name'), exercises:[
-    { name:t('example.squat'), sets:reps(40,5) },
-    { name:t('example.bench'), sets:reps(30,5) },
-    { name:t('example.row'),   sets:reps(30,8) },
+    { name:t('example.squat'), sets:reps(5) },
+    { name:t('example.bench'), sets:reps(5) },
+    { name:t('example.row'),   sets:reps(8) },
   ]};
 }
 async function loadExampleRoutine() {
@@ -355,6 +343,10 @@ function getLastExercise(name) {
   const key = name.trim().toLowerCase(); if (!key) return null;
   return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>e.name.trim().toLowerCase()===key);
 }
+// Peso corporal (dominadas, fondos): el peso es 0 y escribirlo como "0×12"
+// hacía leer un dato real como si faltara. Sin peso, la serie es solo reps.
+// Recibe el peso YA en la unidad de pantalla, no en kg.
+const pairLabel = (w, reps) => w ? `${w}×${reps}` : `×${reps}`;
 // Peso máximo histórico del ejercicio (kg). Es contexto, no objetivo: la marca
 // a superar para sobrecarga progresiva es la última sesión, no el récord.
 function maxWeightFor(name) {
@@ -367,12 +359,29 @@ function maxWeightFor(name) {
 function updateLast(card) {
   const e = getLastExercise($('.exercise-name', card).value);
   const pr = maxWeightFor($('.exercise-name', card).value);
-  const base = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>`${showW(s.weight)} × ${s.reps}`).join(' / ')}) : t('exercise.noLast');
+  const base = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>s.weight?`${showW(s.weight)} × ${s.reps}`:`× ${s.reps}`).join(' / ')}) : t('exercise.noLast');
   // El récord va primero: la línea trunca con "…" en móvil y al final no se vería.
   $('.last-time', card).textContent = pr ? `${t('exercise.pr',{w:showW(pr)})} · ${base}` : base;
   $$('.set-row', card).forEach((r, i) => {
     const s = e?.sets?.[i];
-    $('.set-prev', r).textContent = s ? `${toDisplay(s.weight)}×${s.reps}` : (e ? '—' : '');
+    $('.set-prev', r).textContent = s ? pairLabel(toDisplay(s.weight), s.reps) : (e ? '—' : '');
+  });
+  refreshDupes();
+}
+// Avisa cuando el mismo movimiento quedó dos veces en la sesión: pasa al
+// agregarlo a mano sin ver que la rutina ya lo traía más abajo, plegado.
+function refreshDupes() {
+  const cards = $$('.exercise-card');
+  const seen = new Map();
+  const keyOf = c => $('.exercise-name', c).value.trim().toLowerCase();
+  cards.forEach(c => { const k = keyOf(c); if (k) seen.set(k, (seen.get(k) || 0) + 1); });
+  cards.forEach(c => {
+    const k = keyOf(c), dup = !!k && seen.get(k) > 1;
+    c.classList.toggle('is-dup', dup);
+    // attr() lee del elemento del pseudo, así que el aviso va en los dos.
+    const label = dup ? t('exercise.dup') : '';
+    $('.last-time', c).dataset.dup = label;
+    $('.exercise-summary', c).dataset.dup = label;
   });
 }
 // `values.weight`/`values.reps` llegan listos para pintar (ya en la unidad
@@ -384,13 +393,25 @@ function addSet(card, values = {}) {
   wIn.value = values.weight ?? ''; rIn.value = values.reps ?? '';
   if (values.targetWeight != null) node.dataset.targetWeight = values.targetWeight;
   if (values.targetReps != null) node.dataset.targetReps = values.targetReps;
-  wIn.placeholder = values.targetWeight != null ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
+  // Objetivo 0 = peso corporal: el campo no pide un peso (queda "—") y la serie
+  // se completa solo con las reps. Escribir un peso igual vale: fondos lastrados.
+  const bodyweight = values.targetWeight === 0;
+  node.classList.toggle('is-bw', bodyweight);
+  wIn.placeholder = bodyweight ? t('set.bodyweight')
+    : values.targetWeight != null ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
   rIn.placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
   $('.remove-set',node).title = t('set.removeTitle');
   // Serie hecha = serie con valores. Un toque en el nº estampa el objetivo
   // (placeholder o última sesión): "hice lo previsto" cuesta un solo gesto.
   // Solo rellena lo vacío — lo tecleado a mano siempre manda.
-  const syncFilled = () => { node.classList.toggle('is-filled', !!(String(wIn.value).trim() && String(rIn.value).trim())); refreshReady(card); };
+  // La serie está completa cuando tiene lo que el objetivo pedía. Si no había
+  // peso previsto (corporal, o un movimiento sin historial), alcanzan las reps.
+  const needsWeight = values.targetWeight != null && values.targetWeight > 0;
+  const syncFilled = () => {
+    const hasReps = !!String(rIn.value).trim(), hasW = !!String(wIn.value).trim();
+    node.classList.toggle('is-filled', hasReps && (hasW || !needsWeight));
+    refreshReady(card);
+  };
   wIn.addEventListener('input', syncFilled); rIn.addEventListener('input', syncFilled);
   const numBtn = $('.set-number',node);
   numBtn.title = t('set.confirmTitle');
@@ -399,7 +420,7 @@ function addSet(card, values = {}) {
     const ls = getLastExercise($('.exercise-name',card).value)?.sets?.[i];
     const tw = node.dataset.targetWeight != null ? num(node.dataset.targetWeight) : ls?.weight;
     const tr = node.dataset.targetReps != null ? num(node.dataset.targetReps) : ls?.reps;
-    if (!String(wIn.value).trim() && tw != null) wIn.value = toDisplay(tw);
+    if (!String(wIn.value).trim() && tw) wIn.value = toDisplay(tw); // 0 = corporal: no se estampa
     if (!String(rIn.value).trim() && tr != null) rIn.value = tr;
     syncFilled(); saveDraft();
   };
@@ -407,10 +428,14 @@ function addSet(card, values = {}) {
   $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); refreshReady(card); updateLast(card); saveDraft(); };
 }
 function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textContent=`${String(i+1).padStart(2,'0')}`); }
-// Con todas las series hechas, el ✓ se enciende: la tarjeta pide que la cierres.
+// Estados derivados de los datos, nunca marcados a mano: `is-ready` (todas las
+// series con valores → el botón PLEGAR se enciende) e `is-done` (alguna serie
+// con valores → el movimiento cuenta como trabajado). Sin estado manual no
+// existe el movimiento "hecho" sin nada registrado.
 function refreshReady(card) {
   const rows = $$('.set-row', card);
   card.classList.toggle('is-ready', rows.length > 0 && rows.every(r => r.classList.contains('is-filled')));
+  card.classList.toggle('is-done', rows.some(r => String($('.set-weight',r).value).trim() || String($('.set-reps',r).value).trim()));
 }
 // Resumen compacto que se muestra cuando el movimiento está colapsado/terminado.
 function exerciseSummaryText(card) {
@@ -418,7 +443,7 @@ function exerciseSummaryText(card) {
   // descartan, así que mostrarlas como hechas era prometer algo que no queda.
   // Sin nada tecleado se muestra el plan, pero nombrado como objetivo.
   const rows=$$('.set-row',card);
-  const join=sets=>sets.map(s=>`${s.w}×${s.reps}`).join(' · ');
+  const join=sets=>sets.map(s=>pairLabel(s.w,s.reps)).join(' · ');
   const typed=rows.map(r=>({ w:num($('.set-weight',r).value)||0, reps:num($('.set-reps',r).value)||0 })).filter(s=>s.w||s.reps);
   if (typed.length) return join(typed);
   const target=rows.map(r=>({ w:parseFloat($('.set-weight',r).placeholder)||0, reps:parseFloat($('.set-reps',r).placeholder)||0 })).filter(s=>s.w||s.reps);
@@ -427,13 +452,12 @@ function exerciseSummaryText(card) {
 // Plegado y "terminado" eran lo mismo, y por eso una rutina recién cargada ya
 // se contaba entera como hecha. Ahora son dos cosas: `is-collapsed` es dónde
 // estás parado (lo mueve el acordeón) y `is-done` es lo que ya trabajaste.
-function setCollapsed(card, collapsed, done) {
+function setCollapsed(card, collapsed) {
   card.classList.toggle('is-collapsed', collapsed);
-  if (done !== undefined) card.classList.toggle('is-done', done);
   const summary=$('.exercise-summary',card);
   summary.hidden=!collapsed; if(collapsed) summary.textContent=exerciseSummaryText(card);
   const btn=$('.collapse-exercise',card);
-  btn.textContent=t('exercise.done'); btn.title=t('exercise.collapse');
+  btn.title=t('exercise.collapse'); btn.setAttribute('aria-label',t('exercise.collapse'));
 }
 // Un solo movimiento abierto a la vez: con seis ejercicios desplegados el móvil
 // era un scroll interminable y se perdía de vista en cuál estabas.
@@ -499,10 +523,26 @@ function addExercise(data = {}) {
   nameInput.onfocus = renderAc;
   nameInput.onblur = () => { updateLast(card); setTimeout(()=>{ acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); }, 150); };
   nameInput.onkeydown = e => { if (e.key==='Escape') { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); } };
-  $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); updateLast(card); saveDraft(); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
+  // La serie nueva llega VACÍA, con la anterior de objetivo: agregarla no es
+  // haberla hecho. Se confirma con un toque en su número, como todas las demás.
+  // (Antes copiaba los valores tecleados: contaba sola en el resumen, y al
+  // escribir encima se apilaba con lo copiado — "11" + "9" = "119".)
+  $('.add-set',card).onclick = () => {
+    const last = $$('.set-row',card).at(-1);
+    const vals = {};
+    if (last) {
+      const tw = String($('.set-weight',last).value).trim() ? fromDisplay(num($('.set-weight',last).value))
+               : (last.dataset.targetWeight != null ? num(last.dataset.targetWeight) : null);
+      const tr = String($('.set-reps',last).value).trim() ? num($('.set-reps',last).value)
+               : (last.dataset.targetReps != null ? num(last.dataset.targetReps) : null);
+      if (tw != null) vals.targetWeight = tw;
+      if (tr != null) vals.targetReps = tr;
+    }
+    addSet(card, vals); updateLast(card); saveDraft();
+  }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
   $('.collapse-exercise',card).onclick = e => {
     e.stopPropagation();
-    setCollapsed(card, true, true);
+    setCollapsed(card, true);
     saveDraft();
   };
   // Tocar la tarjeta plegada en cualquier parte la abre y pliega las demás: en
@@ -510,14 +550,11 @@ function addExercise(data = {}) {
   card.addEventListener('click', e => {
     if (!card.classList.contains('is-collapsed')) return;
     if (e.target.closest('.collapse-exercise, .remove-exercise, .drag-exercise')) return;
-    // Abrir un movimiento hecho lo vuelve a poner en curso: es la única forma
-    // de des-marcarlo, y abrirlo ya expresa "sigo trabajando acá".
-    card.classList.remove('is-done');
     openOnly(card);
     saveDraft();
   });
   $('#exerciseList').append(card); updateLast(card);
-  setCollapsed(card, true, !!data.done); // quién queda abierto lo decide el acordeón
+  setCollapsed(card, true); // quién queda abierto lo decide el acordeón; "hecho" se deriva de los valores
   return card;
 }
 // Deja los pesos en la unidad activa para pintarlos. La sesión puede venir del
@@ -725,7 +762,7 @@ function renderPRs() {
   const root=$('#prList'); if(!root) return;
   const prs=personalRecords();
   if(!prs.length){ root.innerHTML=`<p class="no-data">${t('pr.none')}</p>`; return; }
-  root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${toDisplay(r.set.weight)}×${r.set.reps}</span><strong class="pr-e1rm">${Math.round(toDisplay(r.e1rm))} ${unitLabel()}</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
+  root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${pairLabel(toDisplay(r.set.weight),r.set.reps)}</span><strong class="pr-e1rm">${Math.round(toDisplay(r.e1rm))} ${unitLabel()}</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
 }
 function updateDashboard() {
   renderStreak(); renderTrends(); renderHistory(); populateProgress(); renderPRs(); renderCardio(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
@@ -771,7 +808,7 @@ function renderHistory() {
     const body=list.map(it=>{
       if(it.kind==='cardio') return cardioCardHtml(it.entry, searching);
       const s=it.session;
-      const moves=s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>`${toDisplay(x.weight)}×${x.reps}`).join(' · ')}</small></div>`).join('');
+      const moves=s.exercises.map(e=>`<div class="history-move"><span>${escapeHtml(e.name)}</span><small>${e.sets.map(x=>pairLabel(toDisplay(x.weight),x.reps)).join(' · ')}</small></div>`).join('');
       return `<details class="history-session"${searching?' open':''}><summary><div class="hs-id"><h4>${escapeHtml(s.name||t('history.unnamed'))}</h4><time>${dateFmt(s.date)} · ${countLabel('history.movesCount',s.exercises.length)}</time></div><span class="hs-vol">${nf(toDisplay(sessionVolume(s)))} ${unitLabel()}</span></summary><div class="history-moves">${moves}</div><div class="hs-actions"><button class="secondary-button edit-session" data-id="${s.id}">${t('history.edit')}</button></div></details>`;
     }).join('');
     // El total del mes suma tonelaje y minutos por separado: son magnitudes distintas.
@@ -872,7 +909,7 @@ function renderProgress() {
   const bars=records.slice(-8), maxVal=Math.max(...bars.map(r=>metricValue(r,progressMetric)),1);
   const fmt=v=> progressMetric==='max' ? Math.round(v*10)/10 : Math.round(v);
   const recent=[...records].slice(-6).reverse();
-  const topLabel=r=> r.top ? `${toDisplay(r.top.weight)}×${r.top.reps}` : '—';
+  const topLabel=r=> r.top ? pairLabel(toDisplay(r.top.weight),r.top.reps) : '—';
   root.innerHTML=`
     <p class="progress-note">${t('progress.note')}</p>
     <div class="progress-stats">
