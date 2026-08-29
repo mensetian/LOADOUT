@@ -276,7 +276,15 @@ async function applyTemplate(id) {
   if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
   $('#sessionName').value=tpl.name; if(activeSession) activeSession.name=tpl.name;
   $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
-  (tpl.exercises||[]).forEach(e=>addExercise({name:e.name, sets:(e.sets||[]).map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  // El plan aporta la estructura (ejercicios y series) y el peso de arranque;
+  // la marca a superar es la última sesión, que no se pudre como el plan.
+  (tpl.exercises||[]).forEach(e=>{
+    const last=getLastExercise(e.name);
+    addExercise({name:e.name, sets:(e.sets||[]).map((s,i)=>({
+      targetWeight: last?.sets?.[i]?.weight ?? s.weight,
+      targetReps:   last?.sets?.[i]?.reps   ?? s.reps,
+    }))});
+  });
   openFirstPending();
   if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false;
   saveDraft();
@@ -371,24 +379,45 @@ function updateLast(card) {
 // activa). `targetWeight` es la marca a superar y va SIEMPRE en kg: se guarda en
 // el dataset para sobrevivir a una recarga y a un cambio de unidad.
 function addSet(card, values = {}) {
-  const node = $('#setTemplate').content.firstElementChild.cloneNode(true); $('.set-weight',node).value = values.weight ?? ''; $('.set-reps',node).value = values.reps ?? '';
+  const node = $('#setTemplate').content.firstElementChild.cloneNode(true);
+  const wIn = $('.set-weight',node), rIn = $('.set-reps',node);
+  wIn.value = values.weight ?? ''; rIn.value = values.reps ?? '';
   if (values.targetWeight != null) node.dataset.targetWeight = values.targetWeight;
   if (values.targetReps != null) node.dataset.targetReps = values.targetReps;
-  $('.set-weight',node).placeholder = values.targetWeight != null ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
-  $('.set-reps',node).placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
+  wIn.placeholder = values.targetWeight != null ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
+  rIn.placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
   $('.remove-set',node).title = t('set.removeTitle');
-  $('.set-rows',card).append(node); refreshSetNumbers(card);
+  // Serie hecha = serie con valores. Un toque en el nº estampa el objetivo
+  // (placeholder o última sesión): "hice lo previsto" cuesta un solo gesto.
+  // Solo rellena lo vacío — lo tecleado a mano siempre manda.
+  const syncFilled = () => node.classList.toggle('is-filled', !!(String(wIn.value).trim() && String(rIn.value).trim()));
+  wIn.addEventListener('input', syncFilled); rIn.addEventListener('input', syncFilled);
+  const numBtn = $('.set-number',node);
+  numBtn.title = t('set.confirmTitle');
+  numBtn.onclick = () => {
+    const i = $$('.set-row',card).indexOf(node);
+    const ls = getLastExercise($('.exercise-name',card).value)?.sets?.[i];
+    const tw = node.dataset.targetWeight != null ? num(node.dataset.targetWeight) : ls?.weight;
+    const tr = node.dataset.targetReps != null ? num(node.dataset.targetReps) : ls?.reps;
+    if (!String(wIn.value).trim() && tw != null) wIn.value = toDisplay(tw);
+    if (!String(rIn.value).trim() && tr != null) rIn.value = tr;
+    syncFilled(); saveDraft();
+  };
+  $('.set-rows',card).append(node); refreshSetNumbers(card); syncFilled();
   $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); updateLast(card); saveDraft(); };
 }
 function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textContent=`${String(i+1).padStart(2,'0')}`); }
 // Resumen compacto que se muestra cuando el movimiento está colapsado/terminado.
 function exerciseSummaryText(card) {
-  // Usa el valor tecleado; si está vacío, cae al objetivo (placeholder) de la rutina.
-  const sets=$$('.set-row',card).map(r=>{
-    const w=$('.set-weight',r), reps=$('.set-reps',r);
-    return { w:num(w.value)||parseFloat(w.placeholder)||0, reps:num(reps.value)||parseFloat(reps.placeholder)||0 };
-  }).filter(s=>s.w||s.reps);
-  return sets.length ? sets.map(s=>`${s.w}×${s.reps}`).join(' · ') : t('exercise.noSets');
+  // El resumen solo afirma lo tecleado: al guardar, las series vacías se
+  // descartan, así que mostrarlas como hechas era prometer algo que no queda.
+  // Sin nada tecleado se muestra el plan, pero nombrado como objetivo.
+  const rows=$$('.set-row',card);
+  const join=sets=>sets.map(s=>`${s.w}×${s.reps}`).join(' · ');
+  const typed=rows.map(r=>({ w:num($('.set-weight',r).value)||0, reps:num($('.set-reps',r).value)||0 })).filter(s=>s.w||s.reps);
+  if (typed.length) return join(typed);
+  const target=rows.map(r=>({ w:parseFloat($('.set-weight',r).placeholder)||0, reps:parseFloat($('.set-reps',r).placeholder)||0 })).filter(s=>s.w||s.reps);
+  return target.length ? t('exercise.goal',{sets:join(target)}) : t('exercise.noSets');
 }
 // Plegado y "terminado" eran lo mismo, y por eso una rutina recién cargada ya
 // se contaba entera como hecha. Ahora son dos cosas: `is-collapsed` es dónde
@@ -420,6 +449,34 @@ function addExercise(data = {}) {
   $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
   $('.remove-exercise',card).title = t('exercise.removeTitle');
   $('.collapse-exercise',card).title = t('exercise.collapse');
+  // Reordenar arrastrando desde el asa: el orden del plan no siempre es el del
+  // gimnasio (máquinas ocupadas). El orden en pantalla es el que se guarda.
+  const dragBtn = $('.drag-exercise',card);
+  dragBtn.title = t('exercise.drag');
+  dragBtn.addEventListener('click', e => e.stopPropagation());
+  // Los listeners van en window, no en el asa: al reinsertar la tarjeta en el
+  // DOM el navegador suelta la captura del puntero y el pointerup se perdería.
+  dragBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    card.classList.add('is-dragging');
+    const list = $('#exerciseList');
+    const move = ev => {
+      const next = $$('.exercise-card', list).filter(c => c !== card)
+        .find(c => { const r = c.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
+      if (next) { if (next !== card.nextElementSibling) list.insertBefore(card, next); }
+      else if (card !== list.lastElementChild) list.append(card);
+    };
+    const up = () => {
+      card.classList.remove('is-dragging');
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      saveDraft();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
   $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.prev'),t('set.label.load',{unit:unitLabel().toUpperCase()}),t('set.label.reps'),''][i] ?? ''; });
   $('.add-set',card).textContent = t('set.add');
   (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
@@ -448,7 +505,7 @@ function addExercise(data = {}) {
   // el gimnasio se apunta con el pulgar, apuntarle a la flecha es pedir mucho.
   card.addEventListener('click', e => {
     if (!card.classList.contains('is-collapsed')) return;
-    if (e.target.closest('.collapse-exercise, .remove-exercise')) return;
+    if (e.target.closest('.collapse-exercise, .remove-exercise, .drag-exercise')) return;
     openOnly(card);
     saveDraft();
   });
@@ -515,8 +572,9 @@ function renderLiveSummary() {
   cards.forEach(card => {
     if (card.classList.contains('is-done')) done++;
     $$('.set-row', card).forEach(r => {
-      const w = num($('.set-weight', r).value) || parseFloat($('.set-weight', r).placeholder) || 0;
-      const reps = num($('.set-reps', r).value) || parseFloat($('.set-reps', r).placeholder) || 0;
+      // Solo lo tecleado: el objetivo pendiente no es tonelaje levantado.
+      const w = num($('.set-weight', r).value) || 0;
+      const reps = num($('.set-reps', r).value) || 0;
       if (w || reps) sets++;
       vol += w * reps;
     });
