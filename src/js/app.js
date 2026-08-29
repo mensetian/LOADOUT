@@ -432,9 +432,8 @@ function setCollapsed(card, collapsed, done) {
   if (done !== undefined) card.classList.toggle('is-done', done);
   const summary=$('.exercise-summary',card);
   summary.hidden=!collapsed; if(collapsed) summary.textContent=exerciseSummaryText(card);
-  const isDone=card.classList.contains('is-done');
   const btn=$('.collapse-exercise',card);
-  btn.textContent=isDone?'↺':'✓'; btn.title=t(isDone?'exercise.expand':'exercise.collapse');
+  btn.textContent=t('exercise.done'); btn.title=t('exercise.collapse');
 }
 // Un solo movimiento abierto a la vez: con seis ejercicios desplegados el móvil
 // era un scroll interminable y se perdía de vista en cuál estabas.
@@ -503,8 +502,7 @@ function addExercise(data = {}) {
   $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); updateLast(card); saveDraft(); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
   $('.collapse-exercise',card).onclick = e => {
     e.stopPropagation();
-    if (card.classList.contains('is-done')) { card.classList.remove('is-done'); openOnly(card); }
-    else setCollapsed(card, true, true);
+    setCollapsed(card, true, true);
     saveDraft();
   };
   // Tocar la tarjeta plegada en cualquier parte la abre y pliega las demás: en
@@ -512,6 +510,9 @@ function addExercise(data = {}) {
   card.addEventListener('click', e => {
     if (!card.classList.contains('is-collapsed')) return;
     if (e.target.closest('.collapse-exercise, .remove-exercise, .drag-exercise')) return;
+    // Abrir un movimiento hecho lo vuelve a poner en curso: es la única forma
+    // de des-marcarlo, y abrirlo ya expresa "sigo trabajando acá".
+    card.classList.remove('is-done');
     openOnly(card);
     saveDraft();
   });
