@@ -347,7 +347,26 @@ function getLastExercise(name) {
   const key = name.trim().toLowerCase(); if (!key) return null;
   return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>e.name.trim().toLowerCase()===key);
 }
-function updateLast(card) { const e = getLastExercise($('.exercise-name', card).value); $('.last-time', card).textContent = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>`${showW(s.weight)} × ${s.reps}`).join(' / ')}) : t('exercise.noLast'); }
+// Peso máximo histórico del ejercicio (kg). Es contexto, no objetivo: la marca
+// a superar para sobrecarga progresiva es la última sesión, no el récord.
+function maxWeightFor(name) {
+  const key = name.trim().toLowerCase(); if (!key) return 0;
+  return Math.max(0, ...sessions.filter(s => s.id !== activeSession?.id).flatMap(s => s.exercises.filter(e => e.name.trim().toLowerCase() === key)).flatMap(e => e.sets.map(x => x.weight)));
+}
+// Refresca las dos referencias de la tarjeta: la línea "última vez · récord" y
+// la columna ANT. de cada serie (misma serie de la última sesión). La columna
+// vive fuera del placeholder para que no desaparezca al escribir.
+function updateLast(card) {
+  const e = getLastExercise($('.exercise-name', card).value);
+  const pr = maxWeightFor($('.exercise-name', card).value);
+  const base = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>`${showW(s.weight)} × ${s.reps}`).join(' / ')}) : t('exercise.noLast');
+  // El récord va primero: la línea trunca con "…" en móvil y al final no se vería.
+  $('.last-time', card).textContent = pr ? `${t('exercise.pr',{w:showW(pr)})} · ${base}` : base;
+  $$('.set-row', card).forEach((r, i) => {
+    const s = e?.sets?.[i];
+    $('.set-prev', r).textContent = s ? `${toDisplay(s.weight)}×${s.reps}` : (e ? '—' : '');
+  });
+}
 // `values.weight`/`values.reps` llegan listos para pintar (ya en la unidad
 // activa). `targetWeight` es la marca a superar y va SIEMPRE en kg: se guarda en
 // el dataset para sobrevivir a una recarga y a un cambio de unidad.
@@ -359,7 +378,7 @@ function addSet(card, values = {}) {
   $('.set-reps',node).placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
   $('.remove-set',node).title = t('set.removeTitle');
   $('.set-rows',card).append(node); refreshSetNumbers(card);
-  $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); saveDraft(); };
+  $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); updateLast(card); saveDraft(); };
 }
 function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textContent=`${String(i+1).padStart(2,'0')}`); }
 // Resumen compacto que se muestra cuando el movimiento está colapsado/terminado.
@@ -401,7 +420,7 @@ function addExercise(data = {}) {
   $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
   $('.remove-exercise',card).title = t('exercise.removeTitle');
   $('.collapse-exercise',card).title = t('exercise.collapse');
-  $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.load',{unit:unitLabel().toUpperCase()}),t('set.label.reps'),''][i] ?? ''; });
+  $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.prev'),t('set.label.load',{unit:unitLabel().toUpperCase()}),t('set.label.reps'),''][i] ?? ''; });
   $('.add-set',card).textContent = t('set.add');
   (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
   // Autocompletado propio de nombres (reemplaza el datalist nativo, de estilo pobre).
@@ -418,7 +437,7 @@ function addExercise(data = {}) {
   nameInput.onfocus = renderAc;
   nameInput.onblur = () => { updateLast(card); setTimeout(()=>{ acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); }, 150); };
   nameInput.onkeydown = e => { if (e.key==='Escape') { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); } };
-  $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); saveDraft(); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
+  $('.add-set',card).onclick = () => { const last=$$('.set-row',card).at(-1); addSet(card, last?{weight:$('.set-weight',last).value, reps:$('.set-reps',last).value}:{}); updateLast(card); saveDraft(); }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
   $('.collapse-exercise',card).onclick = e => {
     e.stopPropagation();
     if (card.classList.contains('is-done')) { card.classList.remove('is-done'); openOnly(card); }
