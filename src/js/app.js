@@ -390,7 +390,7 @@ function addSet(card, values = {}) {
   // Serie hecha = serie con valores. Un toque en el nº estampa el objetivo
   // (placeholder o última sesión): "hice lo previsto" cuesta un solo gesto.
   // Solo rellena lo vacío — lo tecleado a mano siempre manda.
-  const syncFilled = () => node.classList.toggle('is-filled', !!(String(wIn.value).trim() && String(rIn.value).trim()));
+  const syncFilled = () => { node.classList.toggle('is-filled', !!(String(wIn.value).trim() && String(rIn.value).trim())); refreshReady(card); };
   wIn.addEventListener('input', syncFilled); rIn.addEventListener('input', syncFilled);
   const numBtn = $('.set-number',node);
   numBtn.title = t('set.confirmTitle');
@@ -404,9 +404,14 @@ function addSet(card, values = {}) {
     syncFilled(); saveDraft();
   };
   $('.set-rows',card).append(node); refreshSetNumbers(card); syncFilled();
-  $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); updateLast(card); saveDraft(); };
+  $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); refreshReady(card); updateLast(card); saveDraft(); };
 }
 function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textContent=`${String(i+1).padStart(2,'0')}`); }
+// Con todas las series hechas, el ✓ se enciende: la tarjeta pide que la cierres.
+function refreshReady(card) {
+  const rows = $$('.set-row', card);
+  card.classList.toggle('is-ready', rows.length > 0 && rows.every(r => r.classList.contains('is-filled')));
+}
 // Resumen compacto que se muestra cuando el movimiento está colapsado/terminado.
 function exerciseSummaryText(card) {
   // El resumen solo afirma lo tecleado: al guardar, las series vacías se
@@ -448,6 +453,7 @@ function addExercise(data = {}) {
   const card = $('#exerciseTemplate').content.firstElementChild.cloneNode(true); $('.exercise-name',card).value = data.name || '';
   $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
   $('.remove-exercise',card).title = t('exercise.removeTitle');
+  $('.remove-exercise',card).textContent = t('exercise.remove');
   $('.collapse-exercise',card).title = t('exercise.collapse');
   // Reordenar arrastrando desde el asa: el orden del plan no siempre es el del
   // gimnasio (máquinas ocupadas). El orden en pantalla es el que se guarda.
