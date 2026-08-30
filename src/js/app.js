@@ -352,10 +352,27 @@ function moveRoutineHighlight(step) {
   options[next].classList.add('is-active');
   options[next].scrollIntoView({block:'nearest'});
 }
+// Clave con la que se reconoce un movimiento entre sesiones. Antes era el nombre
+// exacto, y bastaba escribir "Curl mancuernas" en vez de "Curl con mancuernas"
+// para que la app lo tratara como un ejercicio nuevo: sin referencia, sin ANT.,
+// sin récord, y con la duda de siempre otra vez. Se ignoran acentos, plurales y
+// palabras de relleno; lo demás se respeta, así "press banca" y "press banca
+// inclinado" siguen siendo movimientos distintos.
+const FILLER = new Set(['con','de','del','la','el','los','las','en','a','al','y','sobre','para','un','una','with','the','of']);
+function exKey(name) {
+  return String(name || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // fuera acentos
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')                        // guiones y signos
+    .split(/\s+/)
+    .filter(w => w && !FILLER.has(w))
+    .map(w => w.length > 3 ? w.replace(/([^s])e?s$/, '$1') : w) // plural simple, sin tocar "press"
+    .join(' ');
+}
 function lastSessionByRoutine(name) { const key=name.trim().toLowerCase(); if(!key) return null; return sessions.filter(s=>s.id!==activeSession?.id && (s.name||'').trim().toLowerCase()===key).sort((a,b)=>b.date.localeCompare(a.date))[0]||null; }
 function getLastExercise(name) {
-  const key = name.trim().toLowerCase(); if (!key) return null;
-  return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>e.name.trim().toLowerCase()===key);
+  const key = exKey(name); if (!key) return null;
+  return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>exKey(e.name)===key);
 }
 // Una serie sin carga (dominadas, fondos) se escribe "×12", no "0×12": el 0
 // hacía leer un dato real como si faltara.
@@ -364,8 +381,8 @@ const pairLabel = (w, reps) => w ? `${w}×${reps}` : `×${reps}`;
 // Peso máximo histórico del ejercicio (kg). Es contexto, no objetivo: la marca
 // a superar para sobrecarga progresiva es la última sesión, no el récord.
 function maxWeightFor(name) {
-  const key = name.trim().toLowerCase(); if (!key) return 0;
-  return Math.max(0, ...sessions.filter(s => s.id !== activeSession?.id).flatMap(s => s.exercises.filter(e => e.name.trim().toLowerCase() === key)).flatMap(e => e.sets.map(x => x.weight)));
+  const key = exKey(name); if (!key) return 0;
+  return Math.max(0, ...sessions.filter(s => s.id !== activeSession?.id).flatMap(s => s.exercises.filter(e => exKey(e.name) === key)).flatMap(e => e.sets.map(x => x.weight)));
 }
 // Refresca las dos referencias de la tarjeta: la línea "última vez · récord" y
 // la columna ANT. de cada serie (misma serie de la última sesión). La columna
@@ -378,6 +395,7 @@ function updateLast(card) {
   const prEl = $('.lt-pr', card), prevEl = $('.lt-prev', card);
   prEl.hidden = !pr;
   prEl.textContent = pr ? `★ ${showW(pr)}` : '';
+  prevEl.classList.toggle('is-hint', !e);
   prevEl.textContent = e
     ? `↺ ${dateShort(e.date)} · ${e.sets.map(x=>pairLabel(toDisplay(x.weight), x.reps)).join(' · ')}`
     : t('exercise.noLast');
@@ -392,7 +410,7 @@ function updateLast(card) {
 function refreshDupes() {
   const list = cards();
   const seen = new Map();
-  const keyOf = c => $('.exercise-name', c).value.trim().toLowerCase();
+  const keyOf = c => exKey($('.exercise-name', c).value);
   list.forEach(c => { const k = keyOf(c); if (k) seen.set(k, (seen.get(k) || 0) + 1); });
   list.forEach(c => {
     const k = keyOf(c), dup = !!k && seen.get(k) > 1;
@@ -708,14 +726,14 @@ const mondayKey = d => { const x=new Date(d); x.setDate(x.getDate()-((x.getDay()
 // Movimiento estrella: el que aparece en más sesiones (conserva su forma original).
 function starLift() {
   const freq=new Map(), label=new Map();
-  sessions.forEach(s=>{ new Set(s.exercises.map(e=>e.name.trim().toLowerCase()).filter(Boolean)).forEach(k=>freq.set(k,(freq.get(k)||0)+1));
-    s.exercises.forEach(e=>{ const k=e.name.trim().toLowerCase(); if(k&&!label.has(k)) label.set(k,e.name.trim()); }); });
+  sessions.forEach(s=>{ new Set(s.exercises.map(e=>exKey(e.name)).filter(Boolean)).forEach(k=>freq.set(k,(freq.get(k)||0)+1));
+    s.exercises.forEach(e=>{ const k=exKey(e.name); if(k&&!label.has(k)) label.set(k,e.name.trim()); }); });
   let key=null,c=0; freq.forEach((v,k)=>{ if(v>c){c=v;key=k;} });
   return key ? {key, name:label.get(key)} : null;
 }
 function exerciseRecords(key) {
   return [...sessions].sort((a,b)=>a.date.localeCompare(b.date))
-    .flatMap(s=>s.exercises.filter(e=>e.name.trim().toLowerCase()===key).map(e=>({date:s.date, e1rm:Math.max(0,...e.sets.map(e1rm))})))
+    .flatMap(s=>s.exercises.filter(e=>exKey(e.name)===key).map(e=>({date:s.date, e1rm:Math.max(0,...e.sets.map(e1rm))})))
     .filter(r=>r.e1rm>0);
 }
 // Tendencia de fuerza del movimiento estrella: e1RM actual vs ~30 días antes.
@@ -764,16 +782,22 @@ function volumeDelta() {
   return {current:c, pct:p>0 ? Math.round((c-p)/p*100) : null};
 }
 // Mejor e1RM histórico por movimiento (récord personal), con la serie que lo logró.
+// Un movimiento sin carga externa (dominadas, fondos) no tiene 1RM: su marca
+// son las repeticiones de la mejor serie. Antes se medía todo con 1RM estimado
+// y, al dar 0, esos ejercicios se descartaban enteros del salón de la fama.
 function personalRecords() {
   const map=new Map();
   [...sessions].sort((a,b)=>a.date.localeCompare(b.date)).forEach(s=>{
-    s.exercises.forEach(e=>{ const key=e.name.trim().toLowerCase(); if(!key) return;
-      const best=e.sets.reduce((b,x)=> e1rm(x)>(b?e1rm(b):-1) ? x : b, null);
-      if(!best || !e1rm(best)) return;
+    s.exercises.forEach(e=>{ const key=exKey(e.name); if(!key) return;
+      const conCarga=e.sets.some(x=>x.weight>0);
+      // Con carga gana el mejor 1RM; sin carga, la serie de más repeticiones.
+      const score=x=>conCarga?e1rm(x):(x.reps||0);
+      const best=e.sets.reduce((b,x)=> score(x)>(b?score(b):-1) ? x : b, null);
+      if(!best || !score(best)) return;
       const cur=map.get(key);
-      if(!cur || e1rm(best)>cur.e1rm) map.set(key,{name:e.name.trim(), set:best, e1rm:e1rm(best), date:s.date}); });
+      if(!cur || score(best)>cur.score) map.set(key,{name:e.name.trim(), set:best, score:score(best), loaded:conCarga, date:s.date}); });
   });
-  return [...map.values()].sort((a,b)=> b.date.localeCompare(a.date) || b.e1rm-a.e1rm);
+  return [...map.values()].sort((a,b)=> b.score-a.score);
 }
 // Lo único que acompaña a todas las vistas: la racha y la semana en curso.
 // Los números de rendimiento viven en MÉTRICAS; acá arriba estorbaban.
@@ -814,7 +838,18 @@ function renderPRs() {
   const root=$('#prList'); if(!root) return;
   const prs=personalRecords();
   if(!prs.length){ root.innerHTML=`<p class="no-data">${t('pr.none')}</p>`; return; }
-  root.innerHTML=prs.slice(0,10).map(r=>`<div class="pr-row"><span class="pr-name">${escapeHtml(r.name)}</span><span class="pr-set">${pairLabel(toDisplay(r.set.weight),r.set.reps)}</span><strong class="pr-e1rm">${Math.round(toDisplay(r.e1rm))} ${unitLabel()}</strong><span class="pr-date">${dateFmt(r.date)}</span></div>`).join('');
+  // Dos grupos: mezclar "128 kg" con "14 reps" en una sola lista ordenada no
+  // significa nada. Y se pintan TODOS: antes se cortaba en 10 sin avisar, y lo
+  // que se caía eran los récords más viejos, o sea los levantamientos grandes.
+  const row = r => `<div class="pr-row">`
+    + `<span class="pr-name">${escapeHtml(r.name)}</span>`
+    + `<span class="pr-set">${pairLabel(toDisplay(r.set.weight), r.set.reps)}</span>`
+    + `<strong class="pr-e1rm">${r.loaded ? `${Math.round(toDisplay(r.score))} ${unitLabel()}` : `${r.score} ${t('set.repsPlaceholder')}`}</strong>`
+    + `<span class="pr-date">${dateShort(r.date)}</span></div>`;
+  const grupo = (titulo, list) => list.length
+    ? `<h3 class="pr-group">${titulo} <b>${list.length}</b></h3><div class="pr-rows">${list.map(row).join('')}</div>` : '';
+  root.innerHTML = grupo(t('pr.loaded'), prs.filter(r => r.loaded))
+                 + grupo(t('pr.bodyweight'), prs.filter(r => !r.loaded));
 }
 function updateDashboard() {
   renderStreak(); renderTrends(); renderHistory(); populateProgress(); renderPRs(); renderCardio(); renderOnboarding(); window.renderConfig?.(); window.renderBackupStatus?.(); window.renderSnapshotStatus?.();
@@ -990,7 +1025,7 @@ function computeGlobalStats() {
   const freq = new Map(), label = new Map();
   sessions.forEach(s => {
     new Set(s.exercises.map(e => e.name.trim()).filter(Boolean).map(n => n.toLowerCase())).forEach(key => freq.set(key, (freq.get(key) || 0) + 1));
-    s.exercises.forEach(e => { const k = e.name.trim().toLowerCase(); if (k && !label.has(k)) label.set(k, e.name.trim()); });
+    s.exercises.forEach(e => { const k = exKey(e.name); if (k && !label.has(k)) label.set(k, e.name.trim()); });
   });
   let starKey = null, starCount = 0;
   freq.forEach((count, key) => { if (count > starCount) { starCount = count; starKey = key; } });
@@ -1249,9 +1284,18 @@ function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s));
 function detectPRs(entry){
   const prs=[];
   for(const ex of entry.exercises){
-    const key=ex.name.trim().toLowerCase(); const newMax=Math.max(...ex.sets.map(s=>s.weight),0); if(!newMax)continue;
-    const oldMax=Math.max(0,...sessions.filter(s=>s.id!==entry.id).flatMap(s=>s.exercises.filter(e=>e.name.trim().toLowerCase()===key)).flatMap(e=>e.sets.map(x=>x.weight)));
-    if(oldMax&&newMax>oldMax)prs.push(t('pr.line',{name:ex.name, now:showW(newMax), before:showW(oldMax)}));
+    const key=exKey(ex.name);
+    // Igual que en RÉCORDS: con carga manda el peso; sin ella, las repeticiones.
+    // Antes solo se miraba el peso, así que superar tu marca de dominadas o
+    // fondos no se celebraba nunca.
+    const conCarga=ex.sets.some(x=>x.weight>0);
+    const marca=sets=>Math.max(0,...sets.map(x=>conCarga ? (x.weight||0) : (x.reps||0)));
+    const ahora=marca(ex.sets); if(!ahora)continue;
+    const antes=Math.max(0,...sessions.filter(s=>s.id!==entry.id)
+      .flatMap(s=>s.exercises.filter(e=>exKey(e.name)===key))
+      .map(e=>marca(e.sets)));
+    const pinta=v=>conCarga ? showW(v) : `${v} ${t('set.repsPlaceholder')}`;
+    if(antes&&ahora>antes)prs.push(t('pr.line',{name:ex.name, now:pinta(ahora), before:pinta(antes)}));
   }
   return prs;
 }
@@ -1328,7 +1372,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:')navigator.service
 // nivel superior no quedan colgadas de `window`, así que hay que exponerlas a
 // mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
 window.LOADOUT_TEST = {
-  e1rm, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender,
+  e1rm, exKey, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender,
   mergeDeleted, applyDeleted,
   getSessions: () => sessions, setSessions: v => { sessions = v; },
   getTemplates: () => templates, setTemplates: v => { templates = v; },

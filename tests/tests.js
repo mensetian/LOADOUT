@@ -162,6 +162,14 @@ function run(frameWindow) {
       equal(w.detectPRs(entry).length, 1, 'debe reconocerlo como el mismo ejercicio');
     });
 
+    test('superar las repeticiones en un movimiento sin carga también es récord', () => {
+      w.setSessions([session('a', '2026-01-01', null, [move('Dominadas', [[0, 8]])])]);
+      const nueva = session('b', '2026-01-08', null, [move('Dominadas', [[0, 11]])]);
+      equal(w.detectPRs(nueva).length, 1, 'de 8 a 11 repeticiones es un récord');
+      const igual = session('c', '2026-01-08', null, [move('Dominadas', [[0, 8]])]);
+      equal(w.detectPRs(igual).length, 0, 'repetir la misma marca no lo es');
+    });
+
     test('el 1RM estimado sigue la fórmula de Epley', () => {
       close(w.e1rm({ weight: 100, reps: 0 }), 100, 0.001, 'a 1 rep el estimado es el propio peso');
       close(w.e1rm({ weight: 100, reps: 10 }), 133.333, 0.01, '100 kg × 10 reps');
@@ -173,6 +181,31 @@ function run(frameWindow) {
       const prs = w.personalRecords();
       equal(prs.length, 1, 'un movimiento, un récord');
       equal(prs[0].set.weight, 100, 'debe elegir la serie con mejor 1RM estimado');
+    });
+
+    test('un movimiento sin carga tiene récord propio, medido en repeticiones', () => {
+      w.setSessions([session('a', '2026-01-01', null, [
+        move('Press', [[100, 5]]),
+        move('Dominadas', [[0, 8], [0, 11]]),
+      ])]);
+      const prs = w.personalRecords();
+      equal(prs.length, 2, 'los dos movimientos entran, también el de peso corporal');
+      const dom = prs.find(r => r.name === 'Dominadas');
+      equal(dom.loaded, false, 'se reconoce como movimiento sin carga');
+      equal(dom.set.reps, 11, 'su marca es la serie de más repeticiones');
+      equal(dom.score, 11, 'y se puntua por repeticiones, no por 1RM');
+    });
+
+    test('un movimiento se reconoce aunque el nombre varíe', () => {
+      const mismo = (a, b) => equal(w.exKey(a), w.exKey(b), `"${a}" y "${b}" son el mismo movimiento`);
+      const distinto = (a, b) => equal(w.exKey(a) !== w.exKey(b), true, `"${a}" y "${b}" son movimientos distintos`);
+      mismo('Curl con mancuernas', 'Curl mancuernas');
+      mismo('Elevación lateral', 'Elevaciones laterales');
+      mismo('Press Banca', 'press banca');
+      // pero no debe fusionar variantes que de verdad son otro ejercicio
+      distinto('Press banca', 'Press banca inclinado');
+      distinto('Peso muerto', 'Peso muerto rumano');
+      equal(w.exKey('Press'), 'press', 'no le come la s a "press"');
     });
 
     group('UNIDADES (kg / lb)');
