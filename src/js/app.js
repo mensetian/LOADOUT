@@ -29,6 +29,17 @@ const DRAFT_KEY = 'loadout-draft-v1';
 let sessions = JSON.parse(localStorage.getItem(KEY) || '[]');
 let activeSession = null;
 let restoring = false; // evita reescribir el borrador mientras se pinta la sesión
+
+// --- Dos documentos, dos listas --------------------------------------------
+// CAPTURAR anota el entrenamiento de hoy; EDITAR corrige uno ya guardado. Antes
+// compartían pantalla, variable y borrador, y "en cuál estoy" se deducía de si
+// el id ya existía en el historial: un modo invisible que sobrevivía al cierre
+// de la app y terminaba guardando el entrenamiento de hoy sobre el de otro día.
+// Ahora son dos listas distintas y `editingSession` dice cuál se está tocando.
+let editingSession = null;              // copia de la sesión guardada que se edita (solo en memoria)
+const listEl = () => editingSession ? $('#editList') : document.querySelector('#exerciseList');
+const cards = () => $$('.exercise-card', listEl());
+const emptyEl = () => editingSession ? null : $('#sessionEmpty');
 const save = () => localStorage.setItem(KEY, JSON.stringify(sessions));
 
 // --- Borrados (lápidas) -----------------------------------------------------
@@ -114,7 +125,7 @@ function mergeTemplates(local, remote) {
 // --- Borrador de la sesión en curso -----------------------------------------
 // Guarda todo lo tecleado (aunque esté a medias) para no perderlo al recargar.
 function collectDraft() {
-  const exercises = $$('.exercise-card').map(card => ({
+  const exercises = cards().map(card => ({
     name: $('.exercise-name', card).value,
     sets: $$('.set-row', card).map(r => {
       const set = { weight: $('.set-weight', r).value, reps: $('.set-reps', r).value };
@@ -129,7 +140,7 @@ function collectDraft() {
 }
 function draftHasContent(d) { return !!d && Array.isArray(d.exercises) && d.exercises.some(e => (e.name || '').trim() || e.sets?.some(s => s.weight || s.reps)); }
 function saveDraft() {
-  if (restoring || !activeSession) return;
+  if (restoring || editingSession || !activeSession) return; // editar nunca toca el borrador de hoy
   localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...collectDraft(), _savedAt: new Date().toISOString() }));
   renderLiveSummary();
   window.driveDraftChanged?.(); // sube el entrenamiento en curso, sin esperar al final
@@ -159,6 +170,9 @@ function syncDraft(remote) {
   return true;
 }
 const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d+'T12:00'));
+// Sin año: la referencia de la tarjeta es de hace días o semanas, nunca de otro año.
+const dateShort = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short'})
+  .format(new Date(d+'T12:00')).replace(' de ', ' '); // "24 de ago" -> "24 ago"
 // Fecha local (no UTC): con toISOString por la noche saltaba al día siguiente.
 const keyOf = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const todayKey = () => keyOf(new Date());
@@ -246,13 +260,13 @@ async function openRoutine(name) {
   const prev=lastSessionByRoutine(name);
   closeRoutinePanel();
   if(!prev){ pickRoutine(name); return; }
-  if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
+  if(listEl().children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
   $('#sessionName').value=name; if(activeSession) activeSession.name=name;
-  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
+  listEl().innerHTML=''; if(emptyEl()) emptyEl().hidden=true;
   // Se cargan colapsados: solo trabajas uno a la vez, lo abres cuando te toca.
   prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
   openFirstPending();
-  if(!$('#exerciseList').children.length)$('#sessionEmpty').hidden=false;
+  if(!listEl().children.length)if(emptyEl()) emptyEl().hidden=false;
   saveDraft();
 }
 function openRoutinePanel() {
@@ -272,9 +286,9 @@ function pickRoutine(name) {
 async function applyTemplate(id) {
   const tpl=templates.find(x=>x.id===id); if(!tpl) return;
   closeRoutinePanel();
-  if($('#exerciseList').children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
+  if(listEl().children.length && !(await showConfirm(t('routine.loadConfirm'), {danger:true, okText:t('routine.loadOk')}))) return;
   $('#sessionName').value=tpl.name; if(activeSession) activeSession.name=tpl.name;
-  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
+  listEl().innerHTML=''; if(emptyEl()) emptyEl().hidden=true;
   // El plan aporta solo estructura: qué movimientos, cuántas series, cuántas
   // reps. El peso a superar sale siempre de la última sesión.
   (tpl.exercises||[]).forEach(e=>{
@@ -288,7 +302,7 @@ async function applyTemplate(id) {
     })});
   });
   openFirstPending();
-  if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false;
+  if(!listEl().children.length) if(emptyEl()) emptyEl().hidden=false;
   saveDraft();
 }
 // Guardar el plan de una rutina a partir de lo que hay en pantalla. Ya no hay
@@ -343,8 +357,8 @@ function getLastExercise(name) {
   const key = name.trim().toLowerCase(); if (!key) return null;
   return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>e.name.trim().toLowerCase()===key);
 }
-// Peso corporal (dominadas, fondos): el peso es 0 y escribirlo como "0×12"
-// hacía leer un dato real como si faltara. Sin peso, la serie es solo reps.
+// Una serie sin carga (dominadas, fondos) se escribe "×12", no "0×12": el 0
+// hacía leer un dato real como si faltara.
 // Recibe el peso YA en la unidad de pantalla, no en kg.
 const pairLabel = (w, reps) => w ? `${w}×${reps}` : `×${reps}`;
 // Peso máximo histórico del ejercicio (kg). Es contexto, no objetivo: la marca
@@ -359,9 +373,14 @@ function maxWeightFor(name) {
 function updateLast(card) {
   const e = getLastExercise($('.exercise-name', card).value);
   const pr = maxWeightFor($('.exercise-name', card).value);
-  const base = e ? t('exercise.last',{date:dateFmt(e.date), sets:e.sets.map(s=>s.weight?`${showW(s.weight)} × ${s.reps}`:`× ${s.reps}`).join(' / ')}) : t('exercise.noLast');
-  // El récord va primero: la línea trunca con "…" en móvil y al final no se vería.
-  $('.last-time', card).textContent = pr ? `${t('exercise.pr',{w:showW(pr)})} · ${base}` : base;
+  // Compacta y de un vistazo: "★ 60 kg   ↺ 24 ago · 60×8 · 60×8". El récord en
+  // amarillo (contexto), la última vez en gris (la marca a superar hoy).
+  const prEl = $('.lt-pr', card), prevEl = $('.lt-prev', card);
+  prEl.hidden = !pr;
+  prEl.textContent = pr ? `★ ${showW(pr)}` : '';
+  prevEl.textContent = e
+    ? `↺ ${dateShort(e.date)} · ${e.sets.map(x=>pairLabel(toDisplay(x.weight), x.reps)).join(' · ')}`
+    : t('exercise.noLast');
   $$('.set-row', card).forEach((r, i) => {
     const s = e?.sets?.[i];
     $('.set-prev', r).textContent = s ? pairLabel(toDisplay(s.weight), s.reps) : (e ? '—' : '');
@@ -371,11 +390,11 @@ function updateLast(card) {
 // Avisa cuando el mismo movimiento quedó dos veces en la sesión: pasa al
 // agregarlo a mano sin ver que la rutina ya lo traía más abajo, plegado.
 function refreshDupes() {
-  const cards = $$('.exercise-card');
+  const list = cards();
   const seen = new Map();
   const keyOf = c => $('.exercise-name', c).value.trim().toLowerCase();
-  cards.forEach(c => { const k = keyOf(c); if (k) seen.set(k, (seen.get(k) || 0) + 1); });
-  cards.forEach(c => {
+  list.forEach(c => { const k = keyOf(c); if (k) seen.set(k, (seen.get(k) || 0) + 1); });
+  list.forEach(c => {
     const k = keyOf(c), dup = !!k && seen.get(k) > 1;
     c.classList.toggle('is-dup', dup);
     // attr() lee del elemento del pseudo, así que el aviso va en los dos.
@@ -393,23 +412,19 @@ function addSet(card, values = {}) {
   wIn.value = values.weight ?? ''; rIn.value = values.reps ?? '';
   if (values.targetWeight != null) node.dataset.targetWeight = values.targetWeight;
   if (values.targetReps != null) node.dataset.targetReps = values.targetReps;
-  // Objetivo 0 = peso corporal: el campo no pide un peso (queda "—") y la serie
-  // se completa solo con las reps. Escribir un peso igual vale: fondos lastrados.
-  const bodyweight = values.targetWeight === 0;
-  node.classList.toggle('is-bw', bodyweight);
-  wIn.placeholder = bodyweight ? t('set.bodyweight')
-    : values.targetWeight != null ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
+  // El peso es opcional en TODA serie: si la vez pasada no llevó carga, no hay
+  // objetivo que mostrar y el campo queda con la unidad. No hay "modo peso
+  // corporal" que activar ni adivinar: una serie sin carga es solo eso.
+  wIn.placeholder = values.targetWeight ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
   rIn.placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
   $('.remove-set',node).title = t('set.removeTitle');
   // Serie hecha = serie con valores. Un toque en el nº estampa el objetivo
   // (placeholder o última sesión): "hice lo previsto" cuesta un solo gesto.
   // Solo rellena lo vacío — lo tecleado a mano siempre manda.
-  // La serie está completa cuando tiene lo que el objetivo pedía. Si no había
-  // peso previsto (corporal, o un movimiento sin historial), alcanzan las reps.
-  const needsWeight = values.targetWeight != null && values.targetWeight > 0;
+  // Una serie está hecha cuando tiene repeticiones: es la unidad de trabajo.
+  // El peso acompaña cuando hay carga (y entonces se anota), pero no se exige.
   const syncFilled = () => {
-    const hasReps = !!String(rIn.value).trim(), hasW = !!String(wIn.value).trim();
-    node.classList.toggle('is-filled', hasReps && (hasW || !needsWeight));
+    node.classList.toggle('is-filled', !!String(rIn.value).trim());
     refreshReady(card);
   };
   wIn.addEventListener('input', syncFilled); rIn.addEventListener('input', syncFilled);
@@ -457,22 +472,23 @@ function setCollapsed(card, collapsed) {
   const summary=$('.exercise-summary',card);
   summary.hidden=!collapsed; if(collapsed) summary.textContent=exerciseSummaryText(card);
   const btn=$('.collapse-exercise',card);
-  btn.title=t('exercise.collapse'); btn.setAttribute('aria-label',t('exercise.collapse'));
+  const label=t(collapsed?'exercise.expand':'exercise.collapse');
+  btn.title=label; btn.setAttribute('aria-label',label);
 }
 // Un solo movimiento abierto a la vez: con seis ejercicios desplegados el móvil
 // era un scroll interminable y se perdía de vista en cuál estabas.
 function openOnly(card) {
-  $$('.exercise-card').forEach(c => { if (c !== card) setCollapsed(c, true); });
+  cards().forEach(c => { if (c !== card) setCollapsed(c, true); });
   if (card) setCollapsed(card, false);
   return card;
 }
 // Al entrar a una sesión siempre queda uno listo para escribir: el primero que
 // falta. Si ya está todo hecho, no se abre ninguno.
 function openFirstPending() {
-  openOnly($$('.exercise-card').find(c => !c.classList.contains('is-done')) || null);
+  openOnly(cards().find(c => !c.classList.contains('is-done')) || null);
 }
 function addExercise(data = {}) {
-  $('#sessionEmpty').hidden = true;
+  if(emptyEl()) emptyEl().hidden = true;
   const card = $('#exerciseTemplate').content.firstElementChild.cloneNode(true); $('.exercise-name',card).value = data.name || '';
   $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
   $('.remove-exercise',card).title = t('exercise.removeTitle');
@@ -488,7 +504,7 @@ function addExercise(data = {}) {
   dragBtn.addEventListener('pointerdown', e => {
     e.preventDefault();
     card.classList.add('is-dragging');
-    const list = $('#exerciseList');
+    const list = listEl();
     const move = ev => {
       const next = $$('.exercise-card', list).filter(c => c !== card)
         .find(c => { const r = c.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
@@ -539,10 +555,10 @@ function addExercise(data = {}) {
       if (tr != null) vals.targetReps = tr;
     }
     addSet(card, vals); updateLast(card); saveDraft();
-  }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!$('#exerciseList').children.length) $('#sessionEmpty').hidden=false; saveDraft(); };
+  }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!listEl().children.length) if(emptyEl()) emptyEl().hidden=false; saveDraft(); };
   $('.collapse-exercise',card).onclick = e => {
     e.stopPropagation();
-    setCollapsed(card, true);
+    if (card.classList.contains('is-collapsed')) openOnly(card); else setCollapsed(card, true);
     saveDraft();
   };
   // Tocar la tarjeta plegada en cualquier parte la abre y pliega las demás: en
@@ -553,7 +569,7 @@ function addExercise(data = {}) {
     openOnly(card);
     saveDraft();
   });
-  $('#exerciseList').append(card); updateLast(card);
+  listEl().append(card); updateLast(card);
   setCollapsed(card, true); // quién queda abierto lo decide el acordeón; "hecho" se deriva de los valores
   return card;
 }
@@ -574,15 +590,17 @@ function exercisesForRender(session) {
 }
 function renderActiveSession() {
   restoring = true;
-  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=true;
+  // Siempre pinta la lista de CAPTURAR, aunque haya una edición abierta encima.
+  const prevEdit = editingSession; editingSession = null;
+  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden = true;
   if (!activeSession) activeSession = makeSession();
-  const saved = sessions.some(s=>s.id===activeSession.id);
   paintSessionChrome();
   $('#sessionName').value = activeSession.name || '';
   $('#sessionDate').value = activeSession.date || todayKey();
-  $('#deleteSession').hidden = !saved;
   refreshDatalists();
-  if (!activeSession.exercises.length) $('#sessionEmpty').hidden=false; else { exercisesForRender(activeSession).forEach(e=>addExercise(e)); openFirstPending(); }
+  if (!activeSession.exercises.length) { $('#sessionEmpty').hidden = false; }
+  else { exercisesForRender(activeSession).forEach(e=>addExercise(e)); openFirstPending(); }
+  editingSession = prevEdit;
   restoring = false;
   renderLiveSummary();
 }
@@ -591,29 +609,34 @@ function renderActiveSession() {
 // se marca el encabezado y se cambia la etiqueta a "guardar cambios".
 // Se escribe también data-i18n para que un cambio de idioma no lo pise.
 function paintSessionChrome() {
-  const editing = !!activeSession && captureMode !== 'cardio' && sessions.some(s => s.id === activeSession.id);
-  const title = $('#sessionTitle'), eyebrow = $('#sessionEyebrow'), label = $('#finishSessionLabel');
-  // Con el capturador en modo cardio el encabezado es suyo, no el de la sesión de fuerza.
-  if (captureMode === 'cardio') {
-    title.textContent = t('cardio.title');
-  } else {
-    title.textContent = editing
-      ? t('session.editing', { date: dateFmt(activeSession?.date || todayKey()) })
-      : t('session.current');
-  }
-  eyebrow.dataset.i18n = editing ? 'session.eyebrowEditing' : 'session.eyebrow';
-  eyebrow.textContent = t(eyebrow.dataset.i18n);
-  label.dataset.i18n = editing ? 'session.saveEdit' : 'session.finish';
-  label.textContent = t(label.dataset.i18n);
-  $('#sessionView').classList.toggle('is-editing', editing);
+  const title = $('#sessionTitle');
+  // CAPTURAR ya no edita nada: siempre es el entrenamiento que estás anotando.
+  title.textContent = captureMode === 'cardio' ? t('cardio.title') : t('session.current');
+  $('#sessionEyebrow').dataset.i18n = 'session.eyebrow';
+  $('#sessionEyebrow').textContent = t('session.eyebrow');
+  $('#finishSessionLabel').dataset.i18n = 'session.finish';
+  $('#finishSessionLabel').textContent = t('session.finish');
+  paintDateChip();
+}
+// La fecha deja de ser un campo que se cambia sin querer: es un sello. Si no es
+// hoy se pinta en rojo y aparece la × para volver, porque anotar en otro día es
+// legítimo pero tiene que verse todo el tiempo.
+function paintDateChip() {
+  const chip = $('#sessionDateChip'), label = $('#sessionDateLabel'), reset = $('#sessionDateReset');
+  if (!chip) return;
+  const d = activeSession?.date || todayKey(), hoy = d === todayKey();
+  label.textContent = hoy ? t('session.today') : dateShort(d).toUpperCase();
+  chip.classList.toggle('is-past', !hoy);
+  reset.hidden = hoy;
+  reset.title = t('session.backToToday');
 }
 // Panel lateral en vivo (desktop) / resumen sobre "Finalizar" (móvil).
 function renderLiveSummary() {
-  const root = $('#liveSummary'); if (!root) return;
-  const cards = $$('.exercise-card');
-  if (!cards.length) { root.hidden = true; return; }
+  const root = $('#liveSummary'); if (!root || editingSession) return; // el panel en vivo es de CAPTURAR
+  const list = cards();
+  if (!list.length) { root.hidden = true; return; }
   let done = 0, sets = 0, vol = 0;
-  cards.forEach(card => {
+  list.forEach(card => {
     if (card.classList.contains('is-done')) done++;
     $$('.set-row', card).forEach(r => {
       // Solo lo tecleado: el objetivo pendiente no es tonelaje levantado.
@@ -626,21 +649,25 @@ function renderLiveSummary() {
   const nf = n => Math.round(n).toLocaleString(dateLocale());
   root.hidden = false;
   root.innerHTML = `<span class="ls-title">${t('live.title')}</span><div class="ls-grid">`
-    + `<div class="ls-cell"><b>${done}/${cards.length}</b><i>${t('live.moves')}</i></div>`
+    + `<div class="ls-cell"><b>${done}/${list.length}</b><i>${t('live.moves')}</i></div>`
     + `<div class="ls-cell"><b>${sets}</b><i>${t('live.sets')}</i></div>`
     + `<div class="ls-cell"><b>${nf(vol)}<em style="font-style:normal;font-size:.6em;color:var(--muted)"> ${unitLabel()}</em></b><i>${t('live.volume')}</i></div>`
     + `</div>`;
 }
-function collectSession() {
+function collectSession(from = activeSession, nameSel = '#sessionName') {
   // Lo tecleado está en la unidad activa; al historial va siempre en kg.
-  const exercises = $$('.exercise-card').map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:fromDisplay(num($('.set-weight',r).value)),reps:num($('.set-reps',r).value)})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
+  const exercises = cards().map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:fromDisplay(num($('.set-weight',r).value)),reps:num($('.set-reps',r).value)})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
   // `_draft`/`_unit` son marcas del borrador: no deben acabar en el historial, o
   // al reabrir la sesión sus kilos se releerían como si fueran otra unidad.
-  const {_draft, _unit, ...base} = activeSession || {};
-  return {...base, name:$('#sessionName').value.trim(), exercises};
+  const {_draft, _unit, ...base} = from || {};
+  return {...base, name:$(nameSel).value.trim(), exercises};
 }
 async function finishSession() {
   const entry=collectSession(); if(!entry.exercises.length){ await showAlert(t('session.needExercise')); return; }
+  // CAPTURAR solo crea. Si el id ya está en el historial es un borrador viejo
+  // de cuando editar y capturar compartían pantalla: se guarda como sesión
+  // nueva en vez de sobrescribir el entrenamiento de aquel día.
+  if (sessions.some(x => x.id === entry.id)) entry.id = crypto.randomUUID();
   entry.updatedAt=new Date().toISOString(); // sella la edición para resolver conflictos al fusionar con Drive
   const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest();
   const uploading = window.driveAutoSync?.();
@@ -822,17 +849,63 @@ function renderHistory() {
 // ¿Hay trabajo sin guardar en la sesión en curso? (cards con contenido y aún no guardada en el historial)
 function hasUnsavedSession() {
   if (sessions.some(s=>s.id===activeSession?.id)) return false; // ya guardada: editar no pierde nada nuevo
-  return $$('.exercise-card').some(card =>
+  return cards().some(card =>
     $('.exercise-name',card).value.trim() ||
     $$('.set-row',card).some(r=>$('.set-weight',r).value.trim()||$('.set-reps',r).value.trim()));
 }
-async function editSession(id) {
-  const s=sessions.find(x=>x.id===id); if(!s) return;
-  // Evita pisar el progreso del día sin querer al abrir una rutina vieja para editarla.
-  if(hasUnsavedSession() && !(await showConfirm(t('session.switchConfirm'), {danger:true, okText:t('session.switchOk')}))) return;
-  activeSession=JSON.parse(JSON.stringify(s)); renderActiveSession();
-  $$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.view==='session')); $$('.view').forEach(v=>v.classList.toggle('active',v.id==='sessionView'));
-  $('#sessionView').scrollIntoView({behavior:'smooth'});
+// Editar abre su PROPIA vista, con su propia lista y su propia copia. CAPTURAR
+// queda intacto detrás: sus movimientos, su fecha y su borrador no se tocan.
+function editSession(id) {
+  const s = sessions.find(x => x.id === id); if (!s) return;
+  editingSession = JSON.parse(JSON.stringify(s));
+  renderEditing();
+  showEditView(true);
+}
+function renderEditing() {
+  restoring = true;
+  $('#editList').innerHTML = '';
+  $('#editName').value = editingSession.name || '';
+  $('#editDate').value = editingSession.date || todayKey();
+  $('#editTitle').textContent = t('session.editing', { date: dateShort(editingSession.date || todayKey()) });
+  exercisesForRender(editingSession).forEach(e => addExercise(e));
+  restoring = false;
+}
+function showEditView(on) {
+  $('#editView').classList.toggle('active', on);
+  $$('.view').forEach(v => { if (v.id !== 'editView') v.classList.toggle('active', !on && v.id === 'historyView'); });
+  $$('.tab').forEach(x => x.classList.toggle('active', !on && x.dataset.view === 'history'));
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+// Salir sin guardar es seguro: la sesión original nunca se tocó y lo de hoy
+// sigue esperando en CAPTURAR tal como lo dejaste.
+function exitEditing() {
+  editingSession = null;
+  $('#editList').innerHTML = '';
+  showEditView(false);
+  renderHistory();
+}
+function saveEditing() {
+  const entry = collectSession(editingSession, '#editName');
+  entry.date = $('#editDate').value || entry.date;
+  entry.updatedAt = new Date().toISOString();
+  const i = sessions.findIndex(x => x.id === entry.id);
+  // Sin movimientos no queda un registro vacío: se entiende como borrarlo.
+  if (!entry.exercises.length) { deleteEditing(); return; }
+  if (i >= 0) sessions[i] = entry; else sessions.push(entry);
+  save();
+  exitEditing();
+  updateDashboard();
+  window.driveAutoSync?.();
+}
+async function deleteEditing() {
+  if (!(await showConfirm(t('session.deleteConfirm'), { danger: true, okText: t('session.deleteOk') }))) return;
+  window.snapshot?.(t('session.deleteSnapReason'));
+  markDeleted(editingSession.id);
+  sessions = sessions.filter(x => x.id !== editingSession.id);
+  save();
+  exitEditing();
+  updateDashboard();
+  window.driveAutoSync?.();
 }
 function populateProgress() { const names=[...new Set(sessions.flatMap(s=>s.exercises.map(e=>e.name)).filter(Boolean))]; const sel=$('#progressExercise'), current=sel.value; sel.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(''):`<option>${t('progress.noExercises')}</option>`; if(names.includes(current))sel.value=current; renderGlobalStats(); renderProgress(); }
 
@@ -1132,10 +1205,17 @@ function setUnit(next) {
   if(draft) activeSession=draft;                     // exercisesForRender lo convertirá
   renderActiveSession(); updateDashboard(); saveDraft();
 }
-$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; saveDraft(); };
+$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; paintDateChip(); saveDraft(); };
+$('#sessionDateReset').onclick=()=>{ if(!activeSession) return; activeSession.date=todayKey(); $('#sessionDate').value=activeSession.date; paintDateChip(); saveDraft(); };
+$('#editCancel').onclick=exitEditing;
+$('#editSave').onclick=saveEditing;
+$('#editDelete').onclick=deleteEditing;
+$('#editAddExercise').onclick=()=>openOnly(addExercise());
+$('#editDate').onchange=()=>{ if(editingSession && $('#editDate').value) editingSession.date=$('#editDate').value; };
 $('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); saveDraft(); };
 // Cualquier tecleo en series/nombres del ejercicio persiste el borrador.
 $('#exerciseList').addEventListener('input', saveDraft);
+
 $('#sessionName').onfocus=openRoutinePanel;
 $('#sessionName').onkeydown=e=>{
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); if($('#routinePanel').hidden)openRoutinePanel(); moveRoutineHighlight(e.key==='ArrowDown'?1:-1); return; }
@@ -1146,12 +1226,14 @@ $('#routineToggle').onclick=()=>{ if($('#routinePanel').hidden){ openRoutinePane
 // Cerrar al tocar fuera del campo.
 document.addEventListener('click',e=>{ if(!e.target.closest('.routine-field')) closeRoutinePanel(); });
 $('#clearSession').onclick=async ()=>{
-  if(!$('#exerciseList').children.length)return;
+  if(!listEl().children.length)return;
   if(!(await showConfirm(t('session.clearConfirm'), {danger:true, okText:t('session.clearOk')})))return;
-  $('#exerciseList').innerHTML=''; $('#sessionEmpty').hidden=false; saveDraft();
+  // Vaciar de verdad: id y fecha nuevos. Antes solo borraba las tarjetas y
+  // dejaba la sesión atada al día que estuvieras arrastrando.
+  activeSession = makeSession(); clearDraft(); renderActiveSession();
 };
-$('#deleteSession').onclick=async ()=>{if(await showConfirm(t('session.deleteConfirm'), {danger:true, okText:t('session.deleteOk')})){window.snapshot?.(t('session.deleteSnapReason'));markDeleted(activeSession.id);sessions=sessions.filter(s=>s.id!==activeSession.id);save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();window.driveAutoSync?.();}};
-$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='records')renderPRs();if(t.dataset.view==='config')window.renderConfig?.();});
+// Borrar un entrenamiento vive ahora en la vista de edición (#editDelete).
+$$('.tab').forEach(t=>t.onclick=()=>{if(editingSession){ editingSession=null; $('#editList').innerHTML=''; $('#editView').classList.remove('active'); } $$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='records')renderPRs();if(t.dataset.view==='config')window.renderConfig?.();});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
 $('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions,templates,cardio,deleted:deletedIds};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
 $('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));deletedIds=mergeDeleted(deletedIds,payload.deleted);saveDeleted();sessions=payload.sessions;if(Array.isArray(payload.templates)){templates=payload.templates;saveTemplates();}if(Array.isArray(payload.cardio)){cardio=payload.cardio;saveCardio();}save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
@@ -1161,6 +1243,15 @@ $('#importData').onchange=async event=>{const file=event.target.files[0];if(!fil
   if(draftHasContent(draft)) activeSession=draft; else clearDraft();
 })();
 renderActiveSession();updateDashboard();
+// Un borrador de otro día no se reanuda como si fuera lo de hoy: se pregunta.
+// Es el camino por el que el entrenamiento de hoy terminaba con fecha vieja.
+(async () => {
+  const d = activeSession?.date;
+  if (!d || d === todayKey() || !draftHasContent(activeSession)) return;
+  const seguir = await showConfirm(t('session.oldDraft', { date: dateFmt(d) }),
+    { okText: t('session.oldDraftKeep'), cancelText: t('session.oldDraftDrop') });
+  if (!seguir) { clearDraft(); activeSession = makeSession(); renderActiveSession(); }
+})();
 window.onLangChange=()=>{ renderTodayDates(); renderActiveSession(); updateDashboard(); };
 
 if('serviceWorker' in navigator && location.protocol!=='file:')navigator.serviceWorker.register('sw.js');
