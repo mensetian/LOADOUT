@@ -37,9 +37,9 @@ let restoring = false; // evita reescribir el borrador mientras se pinta la sesi
 // de la app y terminaba guardando el entrenamiento de hoy sobre el de otro día.
 // Ahora son dos listas distintas y `editingSession` dice cuál se está tocando.
 let editingSession = null;              // copia de la sesión guardada que se edita (solo en memoria)
-const listEl = () => editingSession ? $('#editList') : document.querySelector('#exerciseList');
+const listEl = () => document.querySelector('#exerciseList');
 const cards = () => $$('.exercise-card', listEl());
-const emptyEl = () => editingSession ? null : $('#sessionEmpty');
+const emptyEl = () => document.querySelector('#sessionEmpty');
 const save = () => localStorage.setItem(KEY, JSON.stringify(sessions));
 
 // --- Borrados (lápidas) -----------------------------------------------------
@@ -442,6 +442,16 @@ function addSet(card, values = {}) {
   $('.set-rows',card).append(node); refreshSetNumbers(card); syncFilled();
   $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); refreshReady(card); updateLast(card); saveDraft(); };
 }
+const REORDER_HINT_KEY = 'loadout-reorder-hint';
+function hintReorderDone() { localStorage.setItem(REORDER_HINT_KEY, 'off'); $('#reorderHint')?.remove(); }
+function paintReorderHint() {
+  const list = $('#exerciseList');
+  if (!list) return;
+  $('#reorderHint')?.remove();
+  if (localStorage.getItem(REORDER_HINT_KEY) === 'off') return;
+  if ($$('.exercise-card.is-collapsed', list).length < 2) return;
+  list.insertAdjacentHTML('beforebegin', `<p class="reorder-hint" id="reorderHint">${t('exercise.reorderHint')}</p>`);
+}
 function refreshSetNumbers(card) { $$('.set-number',card).forEach((n,i)=>n.textContent=`${String(i+1).padStart(2,'0')}`); }
 // Estados derivados de los datos, nunca marcados a mano: `is-ready` (todas las
 // series con valores → el botón PLEGAR se enciende) e `is-done` (alguna serie
@@ -469,6 +479,7 @@ function exerciseSummaryText(card) {
 // estás parado (lo mueve el acordeón) y `is-done` es lo que ya trabajaste.
 function setCollapsed(card, collapsed) {
   card.classList.toggle('is-collapsed', collapsed);
+  setTimeout(paintReorderHint, 0);
   const summary=$('.exercise-summary',card);
   summary.hidden=!collapsed; if(collapsed) summary.textContent=exerciseSummaryText(card);
   const btn=$('.collapse-exercise',card);
@@ -494,34 +505,6 @@ function addExercise(data = {}) {
   $('.remove-exercise',card).title = t('exercise.removeTitle');
   $('.remove-exercise',card).textContent = t('exercise.remove');
   $('.collapse-exercise',card).title = t('exercise.collapse');
-  // Reordenar arrastrando desde el asa: el orden del plan no siempre es el del
-  // gimnasio (máquinas ocupadas). El orden en pantalla es el que se guarda.
-  const dragBtn = $('.drag-exercise',card);
-  dragBtn.title = t('exercise.drag');
-  dragBtn.addEventListener('click', e => e.stopPropagation());
-  // Los listeners van en window, no en el asa: al reinsertar la tarjeta en el
-  // DOM el navegador suelta la captura del puntero y el pointerup se perdería.
-  dragBtn.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    card.classList.add('is-dragging');
-    const list = listEl();
-    const move = ev => {
-      const next = $$('.exercise-card', list).filter(c => c !== card)
-        .find(c => { const r = c.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
-      if (next) { if (next !== card.nextElementSibling) list.insertBefore(card, next); }
-      else if (card !== list.lastElementChild) list.append(card);
-    };
-    const up = () => {
-      card.classList.remove('is-dragging');
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      saveDraft();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
-  });
   $$('.set-labels span',card).forEach((el,i)=>{ el.textContent = [t('set.label.set'),t('set.label.prev'),t('set.label.load',{unit:unitLabel().toUpperCase()}),t('set.label.reps'),''][i] ?? ''; });
   $('.add-set',card).textContent = t('set.add');
   (data.sets?.length ? data.sets : [{}]).forEach(s=>addSet(card,s));
@@ -539,10 +522,8 @@ function addExercise(data = {}) {
   nameInput.onfocus = renderAc;
   nameInput.onblur = () => { updateLast(card); setTimeout(()=>{ acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); }, 150); };
   nameInput.onkeydown = e => { if (e.key==='Escape') { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); } };
-  // La serie nueva llega VACÍA, con la anterior de objetivo: agregarla no es
-  // haberla hecho. Se confirma con un toque en su número, como todas las demás.
-  // (Antes copiaba los valores tecleados: contaba sola en el resumen, y al
-  // escribir encima se apilaba con lo copiado — "11" + "9" = "119".)
+  // La serie nueva llega VACIA, con la anterior de objetivo: agregarla no es
+  // haberla hecho. Se confirma con un toque en su numero, como todas las demas.
   $('.add-set',card).onclick = () => {
     const last = $$('.set-row',card).at(-1);
     const vals = {};
@@ -555,17 +536,61 @@ function addExercise(data = {}) {
       if (tr != null) vals.targetReps = tr;
     }
     addSet(card, vals); updateLast(card); saveDraft();
-  }; $('.remove-exercise',card).onclick = () => { card.remove(); if(!listEl().children.length) if(emptyEl()) emptyEl().hidden=false; saveDraft(); };
+  };
+  $('.remove-exercise',card).onclick = () => { card.remove(); if(!listEl().children.length && emptyEl()) emptyEl().hidden=false; paintReorderHint(); saveDraft(); };
   $('.collapse-exercise',card).onclick = e => {
     e.stopPropagation();
     if (card.classList.contains('is-collapsed')) openOnly(card); else setCollapsed(card, true);
     saveDraft();
   };
+  // Reordenar sin asa: se mantiene presionada la tarjeta plegada y se arrastra,
+  // el gesto de toda la vida para mover cosas en una lista. Un asa permanente
+  // ocupaba pantalla siempre para algo que se usa de vez en cuando.
+  let holdTimer = null, dragging = false, startY = 0, dragEndedAt = 0;
+  const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+  card.addEventListener('pointerdown', e => {
+    if (!card.classList.contains('is-collapsed')) return;
+    if (e.target.closest('button, input')) return;
+    startY = e.clientY;
+    holdTimer = setTimeout(() => {
+      dragging = true;
+      card.classList.add('is-dragging');
+      document.body.classList.add('is-reordering'); // congela el scroll mientras dura
+      if (localStorage.getItem('loadout-vibrate') !== 'off') navigator.vibrate?.(15);
+    }, 320);
+  });
+  // Los listeners van en window: al reinsertar la tarjeta en el DOM el navegador
+  // suelta la captura del puntero y el pointerup se perdería.
+  const onMove = e => {
+    if (!dragging) { if (holdTimer && Math.abs(e.clientY - startY) > 8) cancelHold(); return; }
+    e.preventDefault();
+    const list = $('#exerciseList');
+    const next = $$('.exercise-card', list).filter(c => c !== card)
+      .find(c => { const r = c.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+    if (next) { if (next !== card.nextElementSibling) list.insertBefore(card, next); }
+    else if (card !== list.lastElementChild) list.append(card);
+  };
+  const onUp = () => {
+    cancelHold();
+    if (!dragging) return;
+    dragging = false;
+    card.classList.remove('is-dragging');
+    document.body.classList.remove('is-reordering');
+    dragEndedAt = Date.now(); // el clic que sigue a soltar no debe abrirla
+    saveDraft();
+    hintReorderDone();
+  };
+  const blockTouch = e => { if (dragging) e.preventDefault(); };
+  window.addEventListener('touchmove', blockTouch, { passive: false });
+  window.addEventListener('pointermove', onMove, { passive: false });
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
   // Tocar la tarjeta plegada en cualquier parte la abre y pliega las demás: en
   // el gimnasio se apunta con el pulgar, apuntarle a la flecha es pedir mucho.
   card.addEventListener('click', e => {
     if (!card.classList.contains('is-collapsed')) return;
-    if (e.target.closest('.collapse-exercise, .remove-exercise, .drag-exercise')) return;
+    if (e.target.closest('.collapse-exercise, .remove-exercise')) return;
+    if (Date.now() - dragEndedAt < 300) return; // acaba de soltarse tras reordenar
     openOnly(card);
     saveDraft();
   });
@@ -654,13 +679,13 @@ function renderLiveSummary() {
     + `<div class="ls-cell"><b>${nf(vol)}<em style="font-style:normal;font-size:.6em;color:var(--muted)"> ${unitLabel()}</em></b><i>${t('live.volume')}</i></div>`
     + `</div>`;
 }
-function collectSession(from = activeSession, nameSel = '#sessionName') {
+function collectSession() {
   // Lo tecleado está en la unidad activa; al historial va siempre en kg.
   const exercises = cards().map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:fromDisplay(num($('.set-weight',r).value)),reps:num($('.set-reps',r).value)})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
   // `_draft`/`_unit` son marcas del borrador: no deben acabar en el historial, o
   // al reabrir la sesión sus kilos se releerían como si fueran otra unidad.
-  const {_draft, _unit, ...base} = from || {};
-  return {...base, name:$(nameSel).value.trim(), exercises};
+  const {_draft, _unit, ...base} = activeSession || {};
+  return {...base, name:$('#sessionName').value.trim(), exercises};
 }
 async function finishSession() {
   const entry=collectSession(); if(!entry.exercises.length){ await showAlert(t('session.needExercise')); return; }
@@ -862,14 +887,56 @@ function editSession(id) {
   showEditView(true);
 }
 function renderEditing() {
-  restoring = true;
-  $('#editList').innerHTML = '';
   $('#editName').value = editingSession.name || '';
   $('#editDate').value = editingSession.date || todayKey();
   $('#editTitle').textContent = t('session.editing', { date: dateShort(editingSession.date || todayKey()) });
-  exercisesForRender(editingSession).forEach(e => addExercise(e));
-  restoring = false;
+  $('#editList').innerHTML = (editingSession.exercises || []).map(esRow).join('') || esRow();
+  bindEditRows();
 }
+// Editar NO es entrenar: acá no hay acordeón, ni referencia de la última vez, ni
+// récords, ni chuleo de series. Es una ficha compacta con todo a la vista, con
+// la misma cara que el editor de rutinas — la app tiene dos lenguajes, "anotar"
+// (tarjetas grandes, de una en una) y "editar" (ficha densa), y esto es editar.
+function esRow(ex = { name: '', sets: [] }) {
+  const sets = (ex.sets || []).length ? ex.sets : [{}];
+  return `<div class="re-move es-move">`
+    + `<div class="re-move-head"><input class="re-move-name es-name" value="${escapeHtml(ex.name || '')}" autocomplete="off" data-i18n-placeholder="exercise.namePlaceholder" placeholder="${t('exercise.namePlaceholder')}"/>`
+    + `<button class="icon-btn es-del-move" type="button" title="${t('exercise.removeTitle')}">×</button></div>`
+    + `<div class="re-sets es-sets">${sets.map(esSet).join('')}</div>`
+    + `<button class="add-set es-add-set" type="button">${t('set.add')}</button></div>`;
+}
+function esSet(s = {}) {
+  const w = s.weight ? toDisplay(s.weight) : '';
+  return `<div class="re-set es-set">`
+    + `<span class="re-n"></span>`
+    + `<input class="es-w" inputmode="decimal" type="text" value="${w}" placeholder="${unitLabel()}"/>`
+    + `<span class="es-x">×</span>`
+    + `<input class="es-r" inputmode="numeric" type="number" min="0" step="1" value="${s.reps || ''}" placeholder="${t('set.repsPlaceholder')}"/>`
+    + `<button class="remove-set es-del-set" type="button" title="${t('set.removeTitle')}">×</button></div>`;
+}
+function numberEditSets() {
+  $$('.es-move').forEach(m => $$('.re-n', m).forEach((n, i) => { n.textContent = String(i + 1).padStart(2, '0'); }));
+}
+function bindEditRows() {
+  numberEditSets();
+  $$('.es-del-move').forEach(b => b.onclick = () => { b.closest('.es-move').remove(); if(!$('#editList').children.length) $('#editList').innerHTML = esRow(); bindEditRows(); });
+  $$('.es-add-set').forEach(b => b.onclick = () => { $('.es-sets', b.closest('.es-move')).insertAdjacentHTML('beforeend', esSet()); bindEditRows(); });
+  $$('.es-del-set').forEach(b => b.onclick = () => {
+    const row = b.closest('.es-set'), box = row.parentElement;
+    if (box.children.length > 1) { row.remove(); numberEditSets(); }
+  });
+}
+// Lee la ficha. El peso se teclea en la unidad activa y va al historial en kg.
+function collectEditingExercises() {
+  return $$('.es-move').map(m => ({
+    name: $('.es-name', m).value.trim(),
+    sets: $$('.es-set', m).map(r => ({
+      weight: fromDisplay(num($('.es-w', r).value)),
+      reps: num($('.es-r', r).value),
+    })).filter(x => x.weight || x.reps),
+  })).filter(e => e.name && e.sets.length);
+}
+
 function showEditView(on) {
   $('#editView').classList.toggle('active', on);
   $$('.view').forEach(v => { if (v.id !== 'editView') v.classList.toggle('active', !on && v.id === 'historyView'); });
@@ -885,7 +952,8 @@ function exitEditing() {
   renderHistory();
 }
 function saveEditing() {
-  const entry = collectSession(editingSession, '#editName');
+  const {_draft, _unit, ...base} = editingSession;
+  const entry = {...base, name: $('#editName').value.trim(), exercises: collectEditingExercises()};
   entry.date = $('#editDate').value || entry.date;
   entry.updatedAt = new Date().toISOString();
   const i = sessions.findIndex(x => x.id === entry.id);
@@ -1210,7 +1278,7 @@ $('#sessionDateReset').onclick=()=>{ if(!activeSession) return; activeSession.da
 $('#editCancel').onclick=exitEditing;
 $('#editSave').onclick=saveEditing;
 $('#editDelete').onclick=deleteEditing;
-$('#editAddExercise').onclick=()=>openOnly(addExercise());
+$('#editAddExercise').onclick=()=>{ $('#editList').insertAdjacentHTML('beforeend', esRow()); bindEditRows(); };
 $('#editDate').onchange=()=>{ if(editingSession && $('#editDate').value) editingSession.date=$('#editDate').value; };
 $('#sessionName').oninput=()=>{ if(activeSession)activeSession.name=$('#sessionName').value; openRoutinePanel(); saveDraft(); };
 // Cualquier tecleo en series/nombres del ejercicio persiste el borrador.
