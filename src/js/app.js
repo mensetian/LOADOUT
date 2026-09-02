@@ -154,14 +154,22 @@ const draftInProgress = () => { try { return !!activeSession && draftHasContent(
 // Reconcilia el entrenamiento en curso con el que venga de Drive. Regla dura:
 // nunca pisa trabajo que esté abierto aquí; solo rellena cuando este dispositivo
 // no tiene nada a medias. Devuelve true si cambió algo.
+// Un borrador cuyo id ya está en el historial no es trabajo a medias: es una
+// sesión terminada de la que quedó una copia dando vueltas.
+const yaGuardada = d => !!d?.id && sessions.some(s => s.id === d.id);
 function syncDraft(remote) {
   const local = readDraft();
   // Se terminó en otro dispositivo: el borrador de aquí ya es historia.
-  if (local?.id && sessions.some(s => s.id === local.id)) {
+  if (yaGuardada(local)) {
     clearDraft();
     if (activeSession?.id === local.id) { activeSession = makeSession(); renderActiveSession(); }
     return true;
   }
+  // El respaldo remoto sigue trayendo el borrador de una sesión que YA se
+  // terminó: es un eco, no trabajo pendiente. Antes se restauraba tal cual y la
+  // app pedía terminar un entrenamiento que estaba guardado desde hacía días.
+  // (La subida que viene detrás de la fusión deja el remoto sin borrador.)
+  if (yaGuardada(remote)) return false;
   if (!draftHasContent(remote) || draftHasContent(local)) return false;
   if (local?._savedAt && remote._savedAt && remote._savedAt <= local._savedAt) return false;
   localStorage.setItem(DRAFT_KEY, JSON.stringify(remote));
@@ -1352,7 +1360,7 @@ $('#importData').onchange=async event=>{const file=event.target.files[0];if(!fil
 // Recupera el borrador de la sesión en curso si se recargó/cerró sin finalizar.
 (function restoreDraft(){
   const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');
-  if(draftHasContent(draft)) activeSession=draft; else clearDraft();
+  if(draftHasContent(draft) && !yaGuardada(draft)) activeSession=draft; else clearDraft();
 })();
 renderActiveSession();updateDashboard();
 // Un borrador de otro día no se reanuda como si fuera lo de hoy: se pregunta.
@@ -1372,7 +1380,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:')navigator.service
 // nivel superior no quedan colgadas de `window`, así que hay que exponerlas a
 // mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
 window.LOADOUT_TEST = {
-  e1rm, exKey, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender,
+  e1rm, exKey, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
   mergeDeleted, applyDeleted,
   getSessions: () => sessions, setSessions: v => { sessions = v; },
   getTemplates: () => templates, setTemplates: v => { templates = v; },

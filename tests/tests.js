@@ -208,6 +208,20 @@ function run(frameWindow) {
       equal(w.exKey('Press'), 'press', 'no le come la s a "press"');
     });
 
+    test('el borrador de una sesión ya terminada no revive al sincronizar', () => {
+      const terminada = session('ses-1', '2026-08-24', 'Empuje', [move('Press banca', [[60, 8]])]);
+      w.setSessions([terminada]);
+      localStorage.removeItem('loadout-draft-v1');
+      // el respaldo remoto todavía trae el borrador de esa misma sesión
+      const eco = { ...terminada, _draft: true, _unit: 'kg', _savedAt: '2026-08-24T20:00:00.000Z' };
+      equal(w.syncDraft(eco), false, 'no cuenta como cambio: es un eco, no trabajo pendiente');
+      equal(localStorage.getItem('loadout-draft-v1'), null, 'y no deja un borrador fantasma');
+      // uno de una sesión que NO está en el historial sí debe restaurarse
+      const pendiente = { ...session('otro-id', '2026-08-28', 'Tirón', [move('Remo', [[70, 10]])]), _draft: true, _unit: 'kg' };
+      equal(w.syncDraft(pendiente), true, 'un borrador de verdad pendiente sí se recupera');
+      localStorage.removeItem('loadout-draft-v1');
+    });
+
     group('UNIDADES (kg / lb)');
 
     test('convertir a libras y volver no pierde el valor', () => {
