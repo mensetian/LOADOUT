@@ -407,9 +407,13 @@ function updateLast(card) {
   prevEl.textContent = e
     ? `↺ ${dateShort(e.date)} · ${e.sets.map(x=>pairLabel(toDisplay(x.weight), x.reps)).join(' · ')}`
     : t('exercise.noLast');
+  // Sin serie anterior en esa posición, la columna muestra el objetivo de la
+  // fila (heredado de la serie de arriba o de la plantilla) marcado con "→",
+  // para que el plan siga a la vista sin meterse dentro del campo.
   $$('.set-row', card).forEach((r, i) => {
-    const s = e?.sets?.[i];
-    $('.set-prev', r).textContent = s ? pairLabel(toDisplay(s.weight), s.reps) : (e ? '—' : '');
+    const s = e?.sets?.[i], g = rowTarget(r), el = $('.set-prev', r);
+    el.classList.toggle('is-goal', !s && !!g);
+    el.textContent = s ? pairLabel(toDisplay(s.weight), s.reps) : g ? `→ ${pairLabel(g.w, g.reps)}` : (e ? '—' : '');
   });
   refreshDupes();
 }
@@ -438,11 +442,13 @@ function addSet(card, values = {}) {
   wIn.value = values.weight ?? ''; rIn.value = values.reps ?? '';
   if (values.targetWeight != null) node.dataset.targetWeight = values.targetWeight;
   if (values.targetReps != null) node.dataset.targetReps = values.targetReps;
-  // El peso es opcional en TODA serie: si la vez pasada no llevó carga, no hay
-  // objetivo que mostrar y el campo queda con la unidad. No hay "modo peso
-  // corporal" que activar ni adivinar: una serie sin carga es solo eso.
-  wIn.placeholder = values.targetWeight ? `${toDisplay(values.targetWeight)} ${unitLabel()}` : unitLabel();
-  rIn.placeholder = values.targetReps != null ? `${values.targetReps} ${t('set.repsPlaceholder')}` : t('set.repsPlaceholder');
+  // El placeholder lleva SOLO la unidad, nunca números. Con "60 kg" en gris
+  // dentro del campo la gente creía que ya lo había escrito, o que dejarlo así
+  // contaba. El objetivo vive fuera del campo (columna ANT.) y se estampa con
+  // un toque en el número. El peso es opcional en toda serie: una serie sin
+  // carga es solo eso, no hay "modo peso corporal" que adivinar.
+  wIn.placeholder = unitLabel();
+  rIn.placeholder = t('set.repsPlaceholder');
   $('.remove-set',node).title = t('set.removeTitle');
   // Serie hecha = serie con valores. Un toque en el nº estampa el objetivo
   // (placeholder o última sesión): "hice lo previsto" cuesta un solo gesto.
@@ -497,8 +503,15 @@ function exerciseSummaryText(card) {
   const join=sets=>sets.map(s=>pairLabel(s.w,s.reps)).join(' · ');
   const typed=rows.map(r=>({ w:num($('.set-weight',r).value)||0, reps:num($('.set-reps',r).value)||0 })).filter(s=>s.w||s.reps);
   if (typed.length) return join(typed);
-  const target=rows.map(r=>({ w:parseFloat($('.set-weight',r).placeholder)||0, reps:parseFloat($('.set-reps',r).placeholder)||0 })).filter(s=>s.w||s.reps);
+  const target=rows.map(rowTarget).filter(Boolean);
   return target.length ? t('exercise.goal',{sets:join(target)}) : t('exercise.noSets');
+}
+// Objetivo de una fila (dataset, en kg) ya convertido a la unidad de pantalla.
+// null si la fila no trae plan.
+function rowTarget(r) {
+  const w = r.dataset.targetWeight != null ? toDisplay(num(r.dataset.targetWeight)) : 0;
+  const reps = r.dataset.targetReps != null ? num(r.dataset.targetReps) : 0;
+  return (w || reps) ? { w, reps } : null;
 }
 // Plegado y "terminado" eran lo mismo, y por eso una rutina recién cargada ya
 // se contaba entera como hecha. Ahora son dos cosas: `is-collapsed` es dónde
