@@ -131,6 +131,7 @@ function collectDraft() {
       const set = { weight: $('.set-weight', r).value, reps: $('.set-reps', r).value };
       if (r.dataset.targetWeight != null) set.targetWeight = num(r.dataset.targetWeight);
       if (r.dataset.targetReps != null) set.targetReps = num(r.dataset.targetReps);
+      if (r.dataset.targetFor) set.targetFor = r.dataset.targetFor;
       return set;
     }),
   }));
@@ -272,7 +273,17 @@ async function openRoutine(name) {
   $('#sessionName').value=name; if(activeSession) activeSession.name=name;
   listEl().innerHTML=''; if(emptyEl()) emptyEl().hidden=true;
   // Se cargan colapsados: solo trabajas uno a la vez, lo abres cuando te toca.
-  prev.exercises.forEach(e=>addExercise({name:e.name, sets:e.sets.map(s=>({targetWeight:s.weight, targetReps:s.reps}))}));
+  // La rutina pone la estructura (qué movimientos, cuántas series); los números
+  // salen de tu ÚLTIMA vez con cada movimiento, aunque fuera en otra rutina.
+  // Antes salían de la última vez que hiciste ESTA rutina, y la columna ANT.
+  // (la última vez real) mostraba otra cosa que lo que estampaba el toque.
+  prev.exercises.forEach(e=>{
+    const last=getLastExercise(e.name);
+    addExercise({name:e.name, sets:e.sets.map((s,i)=>{
+      const ref=last?.sets?.[i] ?? last?.sets?.at(-1) ?? s;
+      return {targetWeight:ref.weight, targetReps:ref.reps, targetFor:exKey(e.name)};
+    })});
+  });
   openFirstPending();
   if(!listEl().children.length)if(emptyEl()) emptyEl().hidden=false;
   saveDraft();
@@ -302,8 +313,11 @@ async function applyTemplate(id) {
   (tpl.exercises||[]).forEach(e=>{
     const last=getLastExercise(e.name);
     addExercise({name:e.name, sets:(e.sets||[]).map((s,i)=>{
-      const set={};
-      if (last?.sets?.[i]?.weight != null) set.targetWeight = last.sets[i].weight;
+      const set={targetFor:exKey(e.name)};
+      // Si el plan trae más series que tu última vez, las de más repiten tu
+      // última carga: una serie planeada sin peso no sugiere nada útil.
+      const w = (last?.sets?.[i] ?? last?.sets?.at(-1))?.weight;
+      if (w != null) set.targetWeight = w;
       const reps = last?.sets?.[i]?.reps ?? s.reps;
       if (reps != null) set.targetReps = reps;
       return set;
@@ -377,10 +391,20 @@ function exKey(name) {
     .map(w => w.length > 3 ? w.replace(/([^s])e?s$/, '$1') : w) // plural simple, sin tocar "press"
     .join(' ');
 }
-function lastSessionByRoutine(name) { const key=name.trim().toLowerCase(); if(!key) return null; return sessions.filter(s=>s.id!==activeSession?.id && (s.name||'').trim().toLowerCase()===key).sort((a,b)=>b.date.localeCompare(a.date))[0]||null; }
+// Sesiones que pueden servir de "la última vez", de la más reciente a la más
+// vieja. Dos detalles que antes fallaban: con dos sesiones el mismo día ganaba
+// la primera que se guardó (ahora desempata la edición más reciente), y al
+// anotar un día pasado la referencia salía de un entrenamiento POSTERIOR a ese
+// día. La referencia es siempre lo anterior a la fecha que estás anotando.
+function refSessions() {
+  const upTo = activeSession?.date || todayKey();
+  return sessions.filter(s => s.id !== activeSession?.id && s.date <= upTo)
+    .sort((a,b) => b.date.localeCompare(a.date) || (b.updatedAt||'').localeCompare(a.updatedAt||''));
+}
+function lastSessionByRoutine(name) { const key=name.trim().toLowerCase(); if(!key) return null; return refSessions().find(s=>(s.name||'').trim().toLowerCase()===key)||null; }
 function getLastExercise(name) {
   const key = exKey(name); if (!key) return null;
-  return sessions.filter(s => s.id !== activeSession?.id).sort((a,b)=>b.date.localeCompare(a.date)).flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>exKey(e.name)===key);
+  return refSessions().flatMap(s=>s.exercises.map(e=>({...e,date:s.date}))).find(e=>exKey(e.name)===key && e.sets?.length);
 }
 // Una serie sin carga (dominadas, fondos) se escribe "×12", no "0×12": el 0
 // hacía leer un dato real como si faltara.
@@ -392,30 +416,135 @@ function maxWeightFor(name) {
   const key = exKey(name); if (!key) return 0;
   return Math.max(0, ...sessions.filter(s => s.id !== activeSession?.id).flatMap(s => s.exercises.filter(e => exKey(e.name) === key)).flatMap(e => e.sets.map(x => x.weight)));
 }
+// --- Sobrecarga progresiva --------------------------------------------------
+// Doble progresión, en su versión prudente: se propone subir SOLO cuando la
+// carga ya está consolidada, no apenas se completa una vez. Las tres pruebas:
+//   1. Las dos últimas sesiones del movimiento usaron la misma carga de trabajo
+//      (la más alta). Si la última ya fue una subida, primero se consolida: así
+//      nunca se proponen dos subidas seguidas.
+//   2. En la última, con esa carga, ninguna serie perdió repeticiones frente a
+//      la sesión anterior, y no hizo menos series.
+//   3. Las series salieron parejas (ninguna cayó más de 1 rep por debajo de la
+//      primera): 10·8·6 es llegar al fallo, no dominar la carga.
+// Y no se propone si la última vez fue hace más de 3 semanas: tras un parón lo
+// sensato es repetir, no subir. Sin carga (dominadas, fondos) sube 1 rep.
+const PROGRESS_MAX_GAP_DAYS = 21;
+function progressionFor(name) {
+  const key = exKey(name); if (!key) return null;
+  const hist = refSessions()
+    .map(s => ({ date: s.date, e: s.exercises.find(e => exKey(e.name) === key && e.sets?.length) }))
+    .filter(x => x.e).slice(0, 2);
+  if (hist.length < 2) return null;
+  const [last, before] = hist;
+  const gap = Math.round((new Date((activeSession?.date || todayKey()) + 'T12:00') - new Date(last.date + 'T12:00')) / 86400000);
+  if (gap > PROGRESS_MAX_GAP_DAYS) return null;
+  const top = e => Math.max(0, ...e.sets.map(x => x.weight || 0));
+  const w = top(last.e);
+  if (w !== top(before.e)) return null;
+  const work = e => e.sets.filter(x => (x.weight || 0) === w).map(x => x.reps || 0);
+  const now = work(last.e), prev = work(before.e);
+  if (!now.length || now.length < prev.length) return null;
+  if (now.some((r, i) => r < (prev[i] ?? prev.at(-1)))) return null;
+  if (!now[0] || Math.min(...now) < now[0] - 1) return null;
+  return w ? { w, to: w + loadStep(w) } : { w: 0, reps: 1 };
+}
+// Cuánto subir: el salto más chico que existe en un gimnasio normal para esa
+// carga. Con mancuernas (peso de UNA) los saltos son de 1-2 kg; con barra, de
+// 2,5 kg (un disco de 1,25 por lado). En libras, 2,5 y 5 lb.
+function loadStep(kg) {
+  if (unit() === 'lb') return fromUnit(toUnit(kg, 'lb') < 45 ? 2.5 : 5, 'lb');
+  return kg < 10 ? 1 : kg < 20 ? 2 : 2.5;
+}
+// Todo lo que la tarjeta necesita saber del historial de un movimiento.
+const refFor = name => ({ last: getLastExercise(name), prog: progressionFor(name) });
 // Refresca las dos referencias de la tarjeta: la línea "última vez · récord" y
 // la columna ANT. de cada serie (misma serie de la última sesión). La columna
 // vive fuera del placeholder para que no desaparezca al escribir.
 function updateLast(card) {
-  const e = getLastExercise($('.exercise-name', card).value);
-  const pr = maxWeightFor($('.exercise-name', card).value);
+  const name = $('.exercise-name', card).value;
+  const ref = refFor(name), e = ref.last;
+  const pr = maxWeightFor(name);
   // Compacta y de un vistazo: "★ 60 kg   ↺ 24 ago · 60×8 · 60×8". El récord en
   // amarillo (contexto), la última vez en gris (la marca a superar hoy).
-  const prEl = $('.lt-pr', card), prevEl = $('.lt-prev', card);
+  const prEl = $('.lt-pr', card), prevEl = $('.lt-prev', card), upEl = $('.lt-up', card);
   prEl.hidden = !pr;
   prEl.textContent = pr ? `★ ${showW(pr)}` : '';
   prevEl.classList.toggle('is-hint', !e);
   prevEl.textContent = e
     ? `↺ ${dateShort(e.date)} · ${e.sets.map(x=>pairLabel(toDisplay(x.weight), x.reps)).join(' · ')}`
     : t('exercise.noLast');
+  // La subida se explica en palabras: un número distinto en ANT. sin decir por
+  // qué parecería un error de la app.
+  const p = ref.prog;
+  upEl.hidden = !p;
+  upEl.textContent = !p ? '' : p.w
+    ? t('exercise.progressLoad', { from: toDisplay(p.w), to: showW(p.to) })
+    : t('exercise.progressReps');
   // Sin serie anterior en esa posición, la columna muestra el objetivo de la
   // fila (heredado de la serie de arriba o de la plantilla) marcado con "→",
   // para que el plan siga a la vista sin meterse dentro del campo.
-  $$('.set-row', card).forEach((r, i) => {
-    const s = e?.sets?.[i], g = rowTarget(r), el = $('.set-prev', r);
-    el.classList.toggle('is-goal', !s && !!g);
-    el.textContent = s ? pairLabel(toDisplay(s.weight), s.reps) : g ? `→ ${pairLabel(g.w, g.reps)}` : (e ? '—' : '');
-  });
+  $$('.set-row', card).forEach(r => paintSuggestion(card, r, ref));
   refreshDupes();
+}
+// Lo que la app propone para una serie, y lo MISMO que se escribe al aceptarla.
+// Antes eran dos cosas: la columna ANT. mostraba tu última sesión y el toque
+// estampaba el objetivo de la rutina, así que un mismo gesto daba números que
+// no estaban a la vista. Manda lo que hiciste en esa serie la última vez (con
+// la subida aplicada a las series de trabajo, si toca); si ese día hubo menos
+// series, el objetivo de la fila. Pesos en kg.
+function suggestionFor(card, r, ref = refFor($('.exercise-name', card).value)) {
+  const s = ref.last?.sets?.[$$('.set-row', card).indexOf(r)];
+  if (s) {
+    const w = s.weight || 0, reps = s.reps || 0, p = ref.prog;
+    // Solo suben las series de trabajo: el calentamiento y las series de
+    // descarga (más livianas) se repiten como estaban.
+    if (p && w === p.w) return p.w ? { w: p.to, reps, prev: true, up: true } : { w, reps: reps + p.reps, prev: true, up: true };
+    return { w, reps, prev: true };
+  }
+  const g = rowTarget(r, exKey($('.exercise-name', card).value));
+  if (!g) return null;
+  // Una serie de más que la rutina trae con tu carga de trabajo (objetivo
+  // salido del historial) sube igual que las demás. Una heredada de algo ya
+  // subido o tecleado hoy no coincide con p.w, así que no sube dos veces.
+  const p = ref.prog;
+  if (p?.w && r.dataset.targetFor && g.w === p.w) return { w: p.to, reps: g.reps, prev: false, up: true };
+  return { ...g, prev: false };
+}
+// La columna ANT. es a la vez la referencia y el botón para usarla: mientras la
+// serie está vacía se ve como algo que se toca; ya anotada, queda solo como dato.
+function paintSuggestion(card, r, ref) {
+  const sg = suggestionFor(card, r, ref), el = $('.set-prev', r);
+  const empty = !String($('.set-weight', r).value).trim() && !String($('.set-reps', r).value).trim();
+  el.classList.toggle('is-goal', !!sg && !sg.prev);
+  el.classList.toggle('is-up', !!sg?.up);
+  el.classList.toggle('is-action', !!sg && empty);
+  el.disabled = !sg || !empty;
+  // El corte invisible antes de × deja partir "132.3×8" en dos líneas en vez de
+  // recortarlo: es el número que se va a escribir, tiene que leerse entero.
+  const mark = sg?.up ? '↑ ' : sg && !sg.prev ? '→ ' : '';
+  el.textContent = sg ? mark + pairLabel(toDisplay(sg.w), sg.reps).replace('×', '​×') : (ref.last ? '—' : '');
+}
+// Aceptar la sugerencia: solo rellena lo vacío, lo tecleado a mano siempre manda.
+function applySuggestion(card, r) {
+  const sg = suggestionFor(card, r); if (!sg) return;
+  const wIn = $('.set-weight', r), rIn = $('.set-reps', r);
+  if (!String(wIn.value).trim() && sg.w) wIn.value = toDisplay(sg.w); // 0 = corporal: no se estampa
+  if (!String(rIn.value).trim() && sg.reps) rIn.value = sg.reps;
+}
+// Al nombrar a mano un movimiento que ya hiciste, la tarjeta toma las series
+// que hiciste esa vez (vacías, con su sugerencia al lado): antes arrancaba
+// siempre con una y había que acordarse de cuántas iban. Solo crece, y solo
+// si no anotaste nada todavía. Se evalúa al elegir o dejar el nombre, no por
+// tecla: escribiendo "Remo con barra" se pasa por "Remo" y crecería a destiempo.
+function matchLastSetCount(card) {
+  const key = exKey($('.exercise-name', card).value);
+  if (!key || card.dataset.sizedFor === key) return;
+  card.dataset.sizedFor = key;
+  const rows = $$('.set-row', card);
+  if (rows.some(r => String($('.set-weight', r).value).trim() || String($('.set-reps', r).value).trim())) return;
+  const n = getLastExercise($('.exercise-name', card).value)?.sets?.length || 0;
+  for (let i = rows.length; i < n; i++) addSet(card);
+  updateLast(card);
 }
 // Avisa cuando el mismo movimiento quedó dos veces en la sesión: pasa al
 // agregarlo a mano sin ver que la rutina ya lo traía más abajo, plegado.
@@ -442,6 +571,7 @@ function addSet(card, values = {}) {
   wIn.value = values.weight ?? ''; rIn.value = values.reps ?? '';
   if (values.targetWeight != null) node.dataset.targetWeight = values.targetWeight;
   if (values.targetReps != null) node.dataset.targetReps = values.targetReps;
+  if (values.targetFor) node.dataset.targetFor = values.targetFor;
   // El placeholder lleva SOLO la unidad, nunca números. Con "60 kg" en gris
   // dentro del campo la gente creía que ya lo había escrito, o que dejarlo así
   // contaba. El objetivo vive fuera del campo (columna ANT.) y se estampa con
@@ -458,19 +588,17 @@ function addSet(card, values = {}) {
   const syncFilled = () => {
     node.classList.toggle('is-filled', !!String(rIn.value).trim());
     refreshReady(card);
+    if (node.isConnected) paintSuggestion(card, node, refFor($('.exercise-name',card).value));
   };
   wIn.addEventListener('input', syncFilled); rIn.addEventListener('input', syncFilled);
-  const numBtn = $('.set-number',node);
+  // Dos lugares aceptan la sugerencia: el nº de serie y la propia columna ANT.,
+  // que es donde está el número que se va a escribir.
+  const accept = () => { applySuggestion(card, node); syncFilled(); saveDraft(); };
+  const numBtn = $('.set-number',node), prevBtn = $('.set-prev',node);
   numBtn.title = t('set.confirmTitle');
-  numBtn.onclick = () => {
-    const i = $$('.set-row',card).indexOf(node);
-    const ls = getLastExercise($('.exercise-name',card).value)?.sets?.[i];
-    const tw = node.dataset.targetWeight != null ? num(node.dataset.targetWeight) : ls?.weight;
-    const tr = node.dataset.targetReps != null ? num(node.dataset.targetReps) : ls?.reps;
-    if (!String(wIn.value).trim() && tw) wIn.value = toDisplay(tw); // 0 = corporal: no se estampa
-    if (!String(rIn.value).trim() && tr != null) rIn.value = tr;
-    syncFilled(); saveDraft();
-  };
+  prevBtn.title = t('set.useSuggestion');
+  numBtn.onclick = accept;
+  prevBtn.onclick = accept;
   $('.set-rows',card).append(node); refreshSetNumbers(card); syncFilled();
   $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); refreshReady(card); updateLast(card); saveDraft(); };
 }
@@ -503,13 +631,19 @@ function exerciseSummaryText(card) {
   const join=sets=>sets.map(s=>pairLabel(s.w,s.reps)).join(' · ');
   const typed=rows.map(r=>({ w:num($('.set-weight',r).value)||0, reps:num($('.set-reps',r).value)||0 })).filter(s=>s.w||s.reps);
   if (typed.length) return join(typed);
-  const target=rows.map(rowTarget).filter(Boolean);
+  // El objetivo es lo mismo que se sugiere serie por serie (y se estampa al tocar).
+  const ref=refFor($('.exercise-name',card).value);
+  const target=rows.map(r=>suggestionFor(card,r,ref)).filter(Boolean).map(s=>({w:toDisplay(s.w), reps:s.reps}));
   return target.length ? t('exercise.goal',{sets:join(target)}) : t('exercise.noSets');
 }
-// Objetivo de una fila (dataset, en kg) ya convertido a la unidad de pantalla.
-// null si la fila no trae plan.
-function rowTarget(r) {
-  const w = r.dataset.targetWeight != null ? toDisplay(num(r.dataset.targetWeight)) : 0;
+// Objetivo de una fila (dataset, en kg). null si la fila no trae plan.
+// Un objetivo sacado del historial de un movimiento (`targetFor`) no vale para
+// otro: al renombrar "Aperturas" a "Press Arnold" seguía proponiendo 12×12 de
+// las aperturas. No se borra, se ignora — si vuelves al nombre, vuelve a valer.
+function rowTarget(r, key) {
+  const f = r.dataset.targetFor;
+  if (f && key !== undefined && f !== key) return null;
+  const w = r.dataset.targetWeight != null ? num(r.dataset.targetWeight) : 0;
   const reps = r.dataset.targetReps != null ? num(r.dataset.targetReps) : 0;
   return (w || reps) ? { w, reps } : null;
 }
@@ -540,6 +674,9 @@ function openFirstPending() {
 function addExercise(data = {}) {
   if(emptyEl()) emptyEl().hidden = true;
   const card = $('#exerciseTemplate').content.firstElementChild.cloneNode(true); $('.exercise-name',card).value = data.name || '';
+  // Lo que llega ya armado (rutina, plan, borrador) conserva sus series: solo
+  // un nombre tecleado aquí toma las de la última vez (ver matchLastSetCount).
+  card.dataset.sizedFor = exKey(data.name);
   $('.exercise-name',card).placeholder = t('exercise.namePlaceholder');
   $('.remove-exercise',card).title = t('exercise.removeTitle');
   $('.remove-exercise',card).textContent = t('exercise.remove');
@@ -554,12 +691,12 @@ function addExercise(data = {}) {
     const items = exerciseNames().filter(n => n.toLowerCase().includes(term)).slice(0,8);
     if (!items.length || (items.length===1 && items[0].toLowerCase()===term)) { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); return; }
     acPanel.innerHTML = items.map(n=>`<button type="button" class="ac-option" role="option">${escapeHtml(n)}</button>`).join('');
-    $$('.ac-option',acPanel).forEach(b=>b.onclick=()=>{ nameInput.value=b.textContent; acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); updateLast(card); saveDraft(); });
+    $$('.ac-option',acPanel).forEach(b=>b.onclick=()=>{ nameInput.value=b.textContent; acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); updateLast(card); matchLastSetCount(card); saveDraft(); });
     acPanel.hidden=false; nameInput.setAttribute('aria-expanded','true');
   };
   nameInput.oninput = () => { updateLast(card); renderAc(); };
   nameInput.onfocus = renderAc;
-  nameInput.onblur = () => { updateLast(card); setTimeout(()=>{ acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); }, 150); };
+  nameInput.onblur = () => { updateLast(card); matchLastSetCount(card); saveDraft(); setTimeout(()=>{ acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); }, 150); };
   nameInput.onkeydown = e => { if (e.key==='Escape') { acPanel.hidden=true; nameInput.setAttribute('aria-expanded','false'); } };
   // La serie nueva llega VACIA, con la anterior de objetivo: agregarla no es
   // haberla hecho. Se confirma con un toque en su numero, como todas las demas.
@@ -567,12 +704,15 @@ function addExercise(data = {}) {
     const last = $$('.set-row',card).at(-1);
     const vals = {};
     if (last) {
-      const tw = String($('.set-weight',last).value).trim() ? fromDisplay(num($('.set-weight',last).value))
-               : (last.dataset.targetWeight != null ? num(last.dataset.targetWeight) : null);
-      const tr = String($('.set-reps',last).value).trim() ? num($('.set-reps',last).value)
-               : (last.dataset.targetReps != null ? num(last.dataset.targetReps) : null);
+      // Hereda lo tecleado arriba; si arriba no se tecleó nada, lo que se le
+      // sugería (lo que se ve en su ANT.), no un objetivo oculto en la fila.
+      const typedW = String($('.set-weight',last).value).trim(), typedR = String($('.set-reps',last).value).trim();
+      const sg = suggestionFor(card, last);
+      const tw = typedW ? fromDisplay(num(typedW)) : sg ? sg.w : null;
+      const tr = typedR ? num(typedR) : sg ? sg.reps : null;
       if (tw != null) vals.targetWeight = tw;
       if (tr != null) vals.targetReps = tr;
+      if (!typedW && !typedR && sg) vals.targetFor = exKey(nameInput.value);
     }
     addSet(card, vals); updateLast(card); saveDraft();
   };
@@ -1338,8 +1478,9 @@ function setUnit(next) {
   if(draft) activeSession=draft;                     // exercisesForRender lo convertirá
   renderActiveSession(); updateDashboard(); saveDraft();
 }
-$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; paintDateChip(); saveDraft(); };
-$('#sessionDateReset').onclick=()=>{ if(!activeSession) return; activeSession.date=todayKey(); $('#sessionDate').value=activeSession.date; paintDateChip(); saveDraft(); };
+// Cambiar la fecha cambia qué cuenta como "la última vez": se repintan las referencias.
+$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; paintDateChip(); cards().forEach(updateLast); saveDraft(); };
+$('#sessionDateReset').onclick=()=>{ if(!activeSession) return; activeSession.date=todayKey(); $('#sessionDate').value=activeSession.date; paintDateChip(); cards().forEach(updateLast); saveDraft(); };
 $('#editCancel').onclick=exitEditing;
 $('#editSave').onclick=saveEditing;
 $('#editDelete').onclick=deleteEditing;
@@ -1393,7 +1534,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:')navigator.service
 // nivel superior no quedan colgadas de `window`, así que hay que exponerlas a
 // mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
 window.LOADOUT_TEST = {
-  e1rm, exKey, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
+  e1rm, exKey, getLastExercise, progressionFor, getActive: () => activeSession, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
   mergeDeleted, applyDeleted,
   getSessions: () => sessions, setSessions: v => { sessions = v; },
   getTemplates: () => templates, setTemplates: v => { templates = v; },

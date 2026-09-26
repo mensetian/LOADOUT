@@ -208,6 +208,28 @@ function run(frameWindow) {
       equal(w.exKey('Press'), 'press', 'no le come la s a "press"');
     });
 
+    test('"la última vez" desempata por la edición más reciente del mismo día', () => {
+      const temprano = session('r-1', '2026-09-24', '2026-09-24T10:00:00Z', [move('Remo', [[40, 10]])]);
+      const tarde = session('r-2', '2026-09-24', '2026-09-24T21:00:00Z', [move('Remo', [[45, 8]])]);
+      w.setSessions([temprano, tarde]);
+      equal(w.getLastExercise('Remo').sets[0].weight, 45, 'gana la sesión guardada más tarde');
+      w.setSessions([tarde, temprano]);
+      equal(w.getLastExercise('Remo').sets[0].weight, 45, 'sin importar el orden del historial');
+    });
+
+    test('anotando un día pasado, la referencia es anterior a ese día', () => {
+      w.setSessions([
+        session('p-1', '2026-09-10', null, [move('Press banca', [[50, 10]])]),
+        session('p-2', '2026-09-20', null, [move('Press banca', [[60, 8]])]),
+      ]);
+      const act = w.getActive(), fecha = act.date;
+      act.date = '2026-09-15';
+      equal(w.getLastExercise('Press banca').sets[0].weight, 50, 'no toma el entrenamiento del 20 para el 15');
+      act.date = '2026-09-26';
+      equal(w.getLastExercise('Press banca').sets[0].weight, 60, 'hoy sí toma el más reciente');
+      act.date = fecha;
+    });
+
     test('el borrador de una sesión ya terminada no revive al sincronizar', () => {
       const terminada = session('ses-1', '2026-08-24', 'Empuje', [move('Press banca', [[60, 8]])]);
       w.setSessions([terminada]);
@@ -220,6 +242,70 @@ function run(frameWindow) {
       const pendiente = { ...session('otro-id', '2026-08-28', 'Tirón', [move('Remo', [[70, 10]])]), _draft: true, _unit: 'kg' };
       equal(w.syncDraft(pendiente), true, 'un borrador de verdad pendiente sí se recupera');
       localStorage.removeItem('loadout-draft-v1');
+    });
+
+    group('SOBRECARGA PROGRESIVA');
+    // Arma dos sesiones del mismo movimiento (la vieja primero) y pregunta con
+    // "hoy" = 26 sep. Cada lado es una lista de [peso, reps].
+    const progreso = (antes, ultima, { fechas = ['2026-09-19', '2026-09-23'], nombre = 'Press banca' } = {}) => {
+      localStorage.setItem('loadout-unit', 'kg');
+      w.setSessions([
+        session('g-1', fechas[0], null, [move(nombre, antes)]),
+        session('g-2', fechas[1], null, [move(nombre, ultima)]),
+      ]);
+      const act = w.getActive(), fecha = act.date;
+      act.date = '2026-09-26';
+      const out = w.progressionFor(nombre);
+      act.date = fecha;
+      return out;
+    };
+    const tres = (kg, reps) => [[kg, reps], [kg, reps], [kg, reps]];
+
+    test('propone subir tras dos sesiones completas con la misma carga', () => {
+      const p = progreso(tres(60, 8), tres(60, 8));
+      equal(p && p.w, 60, 'reconoce la carga de trabajo');
+      equal(p && p.to, 62.5, 'y propone el salto de barra: +2,5 kg');
+    });
+
+    test('con una sola sesión todavía no hay nada consolidado', () => {
+      localStorage.setItem('loadout-unit', 'kg');
+      w.setSessions([session('g-1', '2026-09-23', null, [move('Press banca', tres(60, 8))])]);
+      equal(w.progressionFor('Press banca'), null, 'no propone subir');
+    });
+
+    test('recién subida la carga, primero se consolida', () => {
+      equal(progreso(tres(60, 8), tres(62.5, 8)), null, 'nunca dos subidas seguidas');
+    });
+
+    test('si alguna serie perdió repeticiones, no sube', () => {
+      equal(progreso(tres(60, 8), [[60, 8], [60, 8], [60, 6]]), null, 'repetir hasta completar');
+      equal(progreso(tres(60, 8), [[60, 8], [60, 8]]), null, 'menos series tampoco es completar');
+    });
+
+    test('series que se caen hacia el fallo no cuentan como dominadas', () => {
+      const cae = [[60, 10], [60, 8], [60, 6]];
+      equal(progreso(cae, cae), null, '10·8·6 no es dominar la carga');
+      const p = progreso([[60, 8], [60, 8], [60, 7]], [[60, 8], [60, 8], [60, 7]]);
+      equal(p && p.to, 62.5, 'caer 1 rep sí se tolera');
+    });
+
+    test('tras un parón de más de 3 semanas se repite, no se sube', () => {
+      equal(progreso(tres(60, 8), tres(60, 8), { fechas: ['2026-08-20', '2026-08-25'] }), null, 'un mes sin entrenar: repetir');
+    });
+
+    test('el calentamiento no cuenta como serie de trabajo', () => {
+      const p = progreso([[40, 10], [60, 8], [60, 8]], [[40, 10], [60, 8], [60, 8]]);
+      equal(p && p.w, 60, 'la carga de trabajo es la más alta');
+    });
+
+    test('con mancuernas el salto es más chico', () => {
+      const p = progreso(tres(12, 10), tres(12, 10), { nombre: 'Curl con mancuernas' });
+      equal(p && p.to, 14, '12 kg -> 14 kg, no 14,5');
+    });
+
+    test('sin carga, la progresión es una repetición más', () => {
+      const p = progreso(tres(0, 10), tres(0, 10), { nombre: 'Dominadas' });
+      equal(p && p.reps, 1, '+1 rep por serie');
     });
 
     group('UNIDADES (kg / lb)');

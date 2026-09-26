@@ -42,7 +42,16 @@ Decisiones de diseño que marcan el carácter del proyecto:
 - **Cargar rutina anterior** — precarga los ejercicios de tu última sesión con ese
   nombre, con los pesos/reps previos como referencia.
 - **Limpiar** — vacía los movimientos de la sesión en curso.
-- **Valores heredados** — cada serie parte de la anterior; empiezas con una y añades.
+- **Sugerencia por serie** — la columna ANT. propone lo que hiciste en esa serie la
+  última vez (o, si ese día hubo menos series, el objetivo de la fila). Tocarla —o el
+  nº de serie— escribe justo esos valores; lo tecleado a mano nunca se pisa.
+- **Series de la última vez** — al nombrar un movimiento que ya hiciste, la tarjeta
+  toma tantas series como hiciste esa vez. Cada serie nueva parte de la de arriba.
+- **Sobrecarga progresiva (↑)** — propone subir solo cuando la carga está consolidada:
+  las dos últimas sesiones con la misma carga de trabajo, sin perder repeticiones y con
+  series parejas (máx. 1 rep de caída), y la última hace ≤ 3 semanas. Sube el salto más
+  chico razonable (+1/+2 kg con mancuernas livianas, +2,5 kg con barra; +2,5/+5 lb) solo
+  en las series de trabajo; sin carga, +1 rep. Nunca propone dos subidas seguidas.
 - **Finalizar sesión** — guarda, o actualiza si estabas editando una sesión vieja.
 
 ### Temporizador de descanso
