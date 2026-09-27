@@ -487,6 +487,23 @@ function run(frameWindow) {
       const list = [session('a', '2026-01-01'), session('b', '2026-01-02')];
       equal(w.applyDeleted(list, stampOf, {}).length, 2, 'no debe descartar nada');
     });
+
+    group('FECHA ELEGIDA');
+    // Solo se toca la marca en memoria de la sesión activa y se restaura: nada
+    // de esto escribe en localStorage.
+    const active = w.getActive(), hadPick = active._datePicked;
+    try {
+      test('un día elegido cuenta como trabajo en curso aunque no haya series', () => {
+        active._datePicked = true;
+        assert(w.draftInProgress(), 'una sincronización no debe reiniciar la sesión y devolverla a hoy');
+      });
+      test('la marca de día elegido no llega al historial', () => {
+        active._datePicked = true;
+        assert(!('_datePicked' in w.collectSession()), 'la sesión guardada no debe llevar _datePicked');
+      });
+    } finally {
+      if (hadPick === undefined) delete active._datePicked; else active._datePicked = hadPick;
+    }
   } finally {
     w.setSessions(realSessions);
     w.setTemplates(realTemplates);

@@ -52,13 +52,25 @@ Decisiones de diseño que marcan el carácter del proyecto:
   series parejas (máx. 1 rep de caída), y la última hace ≤ 3 semanas. Sube el salto más
   chico razonable (+1/+2 kg con mancuernas livianas, +2,5 kg con barra; +2,5/+5 lb) solo
   en las series de trabajo; sin carga, +1 rep. Nunca propone dos subidas seguidas.
-- **Finalizar sesión** — guarda, o actualiza si estabas editando una sesión vieja.
+- **Finalizar sesión** — guarda, o actualiza si estabas editando una sesión vieja. Un
+  guardado normal avisa con una franja abajo que se va sola; si hubo récord, aparece
+  una hoja con el valor nuevo y el anterior tachado.
+- **Siguiente** — al completar todas las series de un movimiento aparece un botón al
+  pie que abre el próximo pendiente (o finaliza, si ya no falta nada).
+- **Deshacer** — quitar un movimiento, o una serie con datos, muestra DESHACER por 5 s.
 
 ### Temporizador de descanso
-- Botón **⏱** en la barra superior: inicia o detiene un descanso manual.
-- Además arranca **solo** al anotar las reps de una serie (90 s; presets 1:00–3:00).
-- Al terminar, suena un beep y vibra. Se ancla abajo y reserva espacio para no tapar
-  nada.
+- Cajón al costado de la pantalla: tocá el número para iniciar o detener un descanso
+  manual; abrilo con ‹ para elegir otra duración (1:00–3:00).
+- **Arranca solo** al completar una serie: al tocar el nº o ANT., o al salir del campo
+  de reps (o con "Listo" en el teclado). No arranca al corregir una serie ya hecha ni
+  en un día pasado. Se apaga en AJUSTES → *Descanso automático*.
+- Completar una serie vibra cortito; al terminar el descanso suena un beep y vibra.
+
+### Registrar en otro día
+- Tocá un día de la semana (arriba) o el chip **FECHA** para anotar en ese día. Mientras
+  la fecha no sea hoy, una franja roja lo avisa y el botón de finalizar muestra la fecha.
+  Los días futuros no se pueden elegir.
 
 ### 02 · LOG
 - Historial **agrupado por sesión**: rutina, fecha y movimientos, con botón **Editar**

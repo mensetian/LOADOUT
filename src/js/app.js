@@ -2,10 +2,11 @@ const $ = (s, p = document) => p.querySelector(s);
 const $$ = (s, p = document) => [...p.querySelectorAll(s)];
 
 // --- Diálogos con estilo (reemplazan alert/confirm nativos) ---
-function openDialog(message, {okText='Aceptar', cancelText=null, danger=false} = {}) {
+function openDialog(message, {okText='Aceptar', cancelText=null, danger=false, html=null, variant=''} = {}) {
   return new Promise(resolve => {
     const overlay=$('#modalOverlay'), okBtn=$('#modalOk'), cancelBtn=$('#modalCancel');
-    $('#modalMessage').textContent = message;
+    if (html) $('#modalMessage').innerHTML = html; else $('#modalMessage').textContent = message;
+    $('.modal-box', overlay).classList.toggle('is-pr', variant === 'pr');
     okBtn.textContent = okText; okBtn.classList.toggle('is-danger', danger);
     cancelBtn.hidden = !cancelText; if (cancelText) cancelBtn.textContent = cancelText;
     overlay.hidden = false; document.body.classList.add('modal-open');
@@ -23,6 +24,26 @@ function openDialog(message, {okText='Aceptar', cancelText=null, danger=false} =
   });
 }
 function showAlert(message) { return openDialog(message); }
+// Avisos que no piden nada: una franja abajo que se va sola. Antes cada
+// "guardado" era un modal que había que cerrar con otro toque; los modales
+// quedan para lo que exige decidir (confirmaciones y errores).
+let toastTimer = null, toastHasAction = false;
+function showToast(message, { action = null, onAction = null, ms = 3000 } = {}) {
+  const el = $('#toast'), btn = $('#toastAction');
+  clearTimeout(toastTimer);
+  $('#toastMsg').textContent = message;
+  toastHasAction = !!action;
+  btn.hidden = !action; btn.textContent = action || '';
+  btn.onclick = action ? () => { hideToast(); onAction?.(); } : null;
+  el.hidden = false; el.classList.remove('is-in'); void el.offsetWidth; el.classList.add('is-in');
+  toastTimer = setTimeout(hideToast, ms);
+}
+function hideToast() {
+  const el = $('#toast'); if (!el || el.hidden) return;
+  clearTimeout(toastTimer); toastHasAction = false;
+  el.classList.remove('is-in');
+  toastTimer = setTimeout(() => { el.hidden = true; }, 200); // deja terminar la salida
+}
 function showConfirm(message, opts = {}) { return openDialog(message, { okText: t('modal.confirm'), cancelText: t('modal.cancel'), ...opts }); }
 const KEY = 'gymlog-sessions-v1';
 const DRAFT_KEY = 'loadout-draft-v1';
@@ -150,7 +171,10 @@ function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
 const readDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { return null; } };
 // ¿Hay un entrenamiento abierto ahora mismo en pantalla? Lo consulta la fusión
 // antes de reiniciar la captura, para no borrar series a medio anotar.
-const draftInProgress = () => { try { return !!activeSession && draftHasContent(collectDraft()); } catch { return false; } };
+// Haber elegido otro día también es trabajo en curso, aunque todavía no haya
+// series: el orden natural es fecha primero, y una sincronización que caía al
+// volver del selector de fecha reiniciaba la sesión y la devolvía a hoy.
+const draftInProgress = () => { try { return !!activeSession && (!!activeSession._datePicked || draftHasContent(collectDraft())); } catch { return false; } };
 
 // Reconcilia el entrenamiento en curso con el que venga de Drive. Regla dura:
 // nunca pisa trabajo que esté abierto aquí; solo rellena cuando este dispositivo
@@ -180,6 +204,9 @@ function syncDraft(remote) {
 }
 const dateFmt = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short', year:'numeric'}).format(new Date(d+'T12:00'));
 // Sin año: la referencia de la tarjeta es de hace días o semanas, nunca de otro año.
+// Con día de la semana: "MIÉ 23 SEPT". Es lo que se busca en la franja semanal.
+const dateWeekday = d => new Intl.DateTimeFormat(dateLocale(), {weekday:'short', day:'numeric', month:'short'})
+  .format(new Date(d+'T12:00')).replace(/,/g,'').replace(' de ', ' ').toUpperCase();
 const dateShort = d => new Intl.DateTimeFormat(dateLocale(), {day:'numeric', month:'short'})
   .format(new Date(d+'T12:00')).replace(' de ', ' '); // "24 de ago" -> "24 ago"
 // Fecha local (no UTC): con toISOString por la noche saltaba al día siguiente.
@@ -591,16 +618,44 @@ function addSet(card, values = {}) {
     if (node.isConnected) paintSuggestion(card, node, refFor($('.exercise-name',card).value));
   };
   wIn.addEventListener('input', syncFilled); rIn.addEventListener('input', syncFilled);
+  // Lo tecleado cuenta como serie completada al salir del campo (o con "Listo"),
+  // no con el primer dígito: si no, el descanso arrancaba a mitad de escribir.
+  let filledAtFocus = false;
+  const noteFocus = () => { filledAtFocus = node.classList.contains('is-filled'); };
+  wIn.addEventListener('focus', noteFocus); rIn.addEventListener('focus', noteFocus);
+  rIn.addEventListener('change', () => {
+    const now = node.classList.contains('is-filled');
+    if (now && !filledAtFocus) onSetDone(node);
+    filledAtFocus = now;
+  });
+  // El teclado numérico muestra "Siguiente" en el peso (salta a reps) y "Listo"
+  // en las reps (cierra el teclado, y eso completa la serie).
+  wIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rIn.focus(); } });
+  rIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rIn.blur(); } });
   // Dos lugares aceptan la sugerencia: el nº de serie y la propia columna ANT.,
   // que es donde está el número que se va a escribir.
-  const accept = () => { applySuggestion(card, node); syncFilled(); saveDraft(); };
+  const accept = () => {
+    const was = node.classList.contains('is-filled');
+    applySuggestion(card, node); syncFilled(); saveDraft();
+    if (!was && node.classList.contains('is-filled')) onSetDone(node);
+  };
   const numBtn = $('.set-number',node), prevBtn = $('.set-prev',node);
   numBtn.title = t('set.confirmTitle');
   prevBtn.title = t('set.useSuggestion');
   numBtn.onclick = accept;
   prevBtn.onclick = accept;
   $('.set-rows',card).append(node); refreshSetNumbers(card); syncFilled();
-  $('.remove-set',node).onclick = () => { node.remove(); refreshSetNumbers(card); refreshReady(card); updateLast(card); saveDraft(); };
+  // Borrar sigue siendo instantáneo, pero una serie con datos se puede recuperar
+  // unos segundos: la × está al lado de las reps y el dedo se equivoca.
+  const afterRemove = () => { refreshSetNumbers(card); refreshReady(card); updateLast(card); saveDraft(); };
+  $('.remove-set',node).onclick = () => {
+    const box = node.parentElement, after = node.nextSibling;
+    const hadData = String(wIn.value).trim() || String(rIn.value).trim();
+    node.remove(); afterRemove();
+    if (hadData) showToast(t('set.removed'), { action: t('toast.undo'), ms: 5000, onAction: () => {
+      box.insertBefore(node, after?.parentElement === box ? after : null); afterRemove();
+    }});
+  };
 }
 const REORDER_HINT_KEY = 'loadout-reorder-hint';
 function hintReorderDone() { localStorage.setItem(REORDER_HINT_KEY, 'off'); $('#reorderHint')?.remove(); }
@@ -621,6 +676,36 @@ function refreshReady(card) {
   const rows = $$('.set-row', card);
   card.classList.toggle('is-ready', rows.length > 0 && rows.every(r => r.classList.contains('is-filled')));
   card.classList.toggle('is-done', rows.some(r => String($('.set-weight',r).value).trim() || String($('.set-reps',r).value).trim()));
+  if (card.classList.contains('is-ready')) paintNext(card);
+}
+const AUTOREST_KEY = 'loadout-autorest';
+// Serie recién completada (sin reps → con reps). La app contesta: un pop en el
+// nº, una vibración corta y, si está activo, arranca el descanso, que es lo que
+// viene después de cada serie y ya no cuesta un toque aparte. En un día pasado
+// no hay descanso que medir: se está pasando en limpio.
+function onSetDone(row) {
+  const n = $('.set-number', row);
+  n.classList.remove('just-filled'); void n.offsetWidth; n.classList.add('just-filled');
+  if (navigator.vibrate && localStorage.getItem('loadout-vibrate') !== 'off') navigator.vibrate(10);
+  if (localStorage.getItem(AUTOREST_KEY) === 'off' || activeSession?.date !== todayKey()) return;
+  startRest();
+  const timer = $('#restTimer');
+  timer.classList.remove('just-started'); void timer.offsetWidth; timer.classList.add('just-started');
+}
+// El siguiente movimiento que falta: primero hacia abajo, después desde arriba.
+function nextPending(card) {
+  const list = cards(), i = list.indexOf(card);
+  const pending = c => c !== card && !c.classList.contains('is-ready');
+  return list.slice(i + 1).find(pending) || list.slice(0, Math.max(i, 0)).find(pending) || null;
+}
+// Al completar un movimiento aparece, al pie, a dónde ir: el siguiente por su
+// nombre o, si ya no falta nada, finalizar. Antes había que plegar con la flecha
+// y buscar el próximo a mano. No avanza solo: podías querer una serie extra.
+function paintNext(card) {
+  const btn = $('.next-exercise', card); if (!btn) return;
+  const next = nextPending(card), name = next && $('.exercise-name', next).value.trim();
+  btn.textContent = !next ? `${t('session.finish')} ↗`
+    : name ? t('exercise.next', { name: name.toUpperCase() }) : t('exercise.nextUnnamed');
 }
 // Resumen compacto que se muestra cuando el movimiento está colapsado/terminado.
 function exerciseSummaryText(card) {
@@ -663,7 +748,7 @@ function setCollapsed(card, collapsed) {
 // era un scroll interminable y se perdía de vista en cuál estabas.
 function openOnly(card) {
   cards().forEach(c => { if (c !== card) setCollapsed(c, true); });
-  if (card) setCollapsed(card, false);
+  if (card) { setCollapsed(card, false); paintNext(card); }
   return card;
 }
 // Al entrar a una sesión siempre queda uno listo para escribir: el primero que
@@ -716,11 +801,28 @@ function addExercise(data = {}) {
     }
     addSet(card, vals); updateLast(card); saveDraft();
   };
-  $('.remove-exercise',card).onclick = () => { card.remove(); if(!listEl().children.length && emptyEl()) emptyEl().hidden=false; paintReorderHint(); saveDraft(); };
+  $('.remove-exercise',card).onclick = () => {
+    const after = card.nextSibling, name = $('.exercise-name',card).value.trim();
+    card.remove(); if(!listEl().children.length && emptyEl()) emptyEl().hidden=false; paintReorderHint(); saveDraft();
+    showToast(name ? t('exercise.removedNamed', { name }) : t('exercise.removed'), { action: t('toast.undo'), ms: 5000, onAction: () => {
+      listEl().insertBefore(card, after?.parentElement === listEl() ? after : null);
+      if (emptyEl()) emptyEl().hidden = true;
+      openOnly(card); paintReorderHint(); saveDraft();
+    }});
+  };
   $('.collapse-exercise',card).onclick = e => {
     e.stopPropagation();
     if (card.classList.contains('is-collapsed')) openOnly(card); else setCollapsed(card, true);
     saveDraft();
+  };
+  // stopPropagation: la tarjeta ya quedó plegada cuando el clic le llega, y su
+  // propio listener ("tocar la plegada la abre") la volvería a abrir.
+  $('.next-exercise',card).onclick = e => {
+    e.stopPropagation();
+    const next = nextPending(card);
+    if (!next) { finishSession(); return; }
+    openOnly(next); saveDraft();
+    setTimeout(() => next.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' }), reducedMotion() ? 0 : 240);
   };
   // Reordenar sin asa: se mantiene presionada la tarjeta plegada y se arrastra,
   // el gesto de toda la vida para mover cosas en una lista. Un asa permanente
@@ -793,6 +895,7 @@ function exercisesForRender(session) {
   }));
 }
 function renderActiveSession() {
+  if (toastHasAction) hideToast();
   restoring = true;
   // Siempre pinta la lista de CAPTURAR, aunque haya una edición abierta encima.
   const prevEdit = editingSession; editingSession = null;
@@ -833,7 +936,30 @@ function paintDateChip() {
   chip.classList.toggle('is-past', !hoy);
   reset.hidden = hoy;
   reset.title = t('session.backToToday');
+  $('#sessionDate').max = todayKey(); // registrar el futuro no tiene sentido
+  // Anotar en otro día es legítimo pero no puede pasar desapercibido: franja
+  // arriba, fecha en el botón de guardar y el día marcado en la semana.
+  const banner = $('#pastBanner');
+  if (banner) { banner.hidden = hoy; $('#pastBannerDate').textContent = t('session.registering', { date: dateWeekday(d) }); }
+  const fd = $('#finishSessionDate');
+  if (fd) { fd.hidden = hoy; fd.textContent = ` · ${dateShort(d).toUpperCase()}`; }
+  paintPickedDay();
 }
+function paintPickedDay() {
+  const d = activeSession?.date, hoy = !d || d === todayKey();
+  $$('#streakWeek .wd').forEach(b => b.classList.toggle('is-picked', !hoy && b.dataset.date === d));
+}
+// Única puerta para cambiar el día de la captura (chip, ×, franja, semana).
+// `_datePicked` distingue un día elegido del "hoy" con que nace toda sesión:
+// nada automático puede devolver a hoy una fecha que eligió la persona.
+function setSessionDate(key) {
+  if (!activeSession || !key) return;
+  activeSession.date = key;
+  if (key === todayKey()) delete activeSession._datePicked; else activeSession._datePicked = true;
+  $('#sessionDate').value = key;
+  paintDateChip(); cards().forEach(updateLast); saveDraft();
+}
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 // Panel lateral en vivo (desktop) / resumen sobre "Finalizar" (móvil).
 function renderLiveSummary() {
   const root = $('#liveSummary'); if (!root || editingSession) return; // el panel en vivo es de CAPTURAR
@@ -863,7 +989,7 @@ function collectSession() {
   const exercises = cards().map(card => ({name:$('.exercise-name',card).value.trim(), sets:$$('.set-row',card).map(r=>({weight:fromDisplay(num($('.set-weight',r).value)),reps:num($('.set-reps',r).value)})).filter(s=>s.weight||s.reps)})).filter(e=>e.name && e.sets.length);
   // `_draft`/`_unit` son marcas del borrador: no deben acabar en el historial, o
   // al reabrir la sesión sus kilos se releerían como si fueran otra unidad.
-  const {_draft, _unit, ...base} = activeSession || {};
+  const {_draft, _unit, _datePicked, ...base} = activeSession || {};
   return {...base, name:$('#sessionName').value.trim(), exercises};
 }
 async function finishSession() {
@@ -873,9 +999,12 @@ async function finishSession() {
   // nueva en vez de sobrescribir el entrenamiento de aquel día.
   if (sessions.some(x => x.id === entry.id)) entry.id = crypto.randomUUID();
   entry.updatedAt=new Date().toISOString(); // sella la edición para resolver conflictos al fusionar con Drive
-  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRs(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest();
+  const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRDetails(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest();
   const uploading = window.driveAutoSync?.();
-  await showAlert(prs.length?t('session.pr',{list:prs.join('\n')}):t('session.saved'));
+  window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
+  // Un guardado normal no interrumpe; un récord sí merece su momento.
+  if (prs.length) await showPRSheet(prs);
+  else showToast(t('session.savedToast', { n: entry.exercises.reduce((a, e) => a + e.sets.length, 0) }));
   // Se espera a la subida ANTES de decidir si hay que avisar: si acaba de
   // respaldar, no tiene sentido abrir un diálogo diciendo que no lo hizo.
   await uploading?.catch(()=>{});
@@ -969,9 +1098,11 @@ function renderStreak() {
   week.innerHTML=strip.map(d=>{
     const cls=`wd${d.trained?' on':''}${d.kind?' is-'+d.kind:''}${d.isToday?' today':''}${d.future?' future':''}`;
     // El título es lo que salva al que no distingue los dos colores.
-    const tip=d.trained?` title="${escapeHtml(kindName(d.kind))}"`:'';
-    return `<span class="${cls}"${tip}>${d.letter}</span>`;
+    const pick=d.isToday?t('streak.pickToday'):t('streak.pickDay',{date:dateWeekday(d.key)});
+    const label=escapeHtml(d.trained?`${pick} · ${kindName(d.kind)}`:pick);
+    return `<button type="button" class="${cls}" data-date="${d.key}" title="${label}" aria-label="${label}"${d.future?' disabled':''}>${d.letter}</button>`;
   }).join('');
+  paintPickedDay();
   week.setAttribute('aria-label',t('streak.week',{n:trained}));
   // Sin racha no se muestra un "0": el hueco lo aprovecha mejor la invitación,
   // y de paso desaparece el cero cruzado de DM Mono, que a 29px parece un símbolo.
@@ -1080,8 +1211,11 @@ function editSession(id) {
   const s = sessions.find(x => x.id === id); if (!s) return;
   editingSession = JSON.parse(JSON.stringify(s));
   renderEditing();
+  editBaseline = editSnapshot();
   showEditView(true);
 }
+let editBaseline = '';
+const editSnapshot = () => JSON.stringify([$('#editName').value.trim(), $('#editDate').value, collectEditingExercises()]);
 function renderEditing() {
   $('#editName').value = editingSession.name || '';
   $('#editDate').value = editingSession.date || todayKey();
@@ -1160,6 +1294,7 @@ function saveEditing() {
   exitEditing();
   updateDashboard();
   window.driveAutoSync?.();
+  showToast(t('session.updated')); // antes volvía al LOG sin decir nada
 }
 async function deleteEditing() {
   if (!(await showConfirm(t('session.deleteConfirm'), { danger: true, okText: t('session.deleteOk') }))) return;
@@ -1442,7 +1577,8 @@ function saveRestState(s){ localStorage.setItem(REST_POS_KEY,JSON.stringify(s));
 })();
 
 // --- Récords personales ---
-function detectPRs(entry){
+function detectPRs(entry){ return detectPRDetails(entry).map(p=>t('pr.line',p)); }
+function detectPRDetails(entry){
   const prs=[];
   for(const ex of entry.exercises){
     const key=exKey(ex.name);
@@ -1456,18 +1592,31 @@ function detectPRs(entry){
       .flatMap(s=>s.exercises.filter(e=>exKey(e.name)===key))
       .map(e=>marca(e.sets)));
     const pinta=v=>conCarga ? showW(v) : `${v} ${t('set.repsPlaceholder')}`;
-    if(antes&&ahora>antes)prs.push(t('pr.line',{name:ex.name, now:pinta(ahora), before:pinta(antes)}));
+    if(antes&&ahora>antes)prs.push({name:ex.name, now:pinta(ahora), before:pinta(antes)});
   }
   return prs;
 }
 
+// Un récord no es un guardado más: hoja propia, el valor nuevo en grande con el
+// anterior tachado al lado, y una vibración distinta de la de cada serie.
+function showPRSheet(prs) {
+  if (navigator.vibrate && localStorage.getItem('loadout-vibrate') !== 'off') navigator.vibrate([30, 40, 30]);
+  const html = `<span class="pr-eyebrow">${escapeHtml(t(prs.length > 1 ? 'pr.titleMany' : 'pr.title'))}</span>`
+    + `<ul class="pr-list">${prs.map(p => `<li><strong>${escapeHtml(p.name)}</strong>`
+      + `<span class="pr-vals"><b>${escapeHtml(p.now)}</b><s>${escapeHtml(p.before)}</s></span></li>`).join('')}</ul>`
+    + `<span class="pr-foot">${escapeHtml(t('pr.saved'))}</span>`;
+  return openDialog('', { html, variant: 'pr', okText: t('pr.ok') });
+}
 function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 
 function renderTodayDates(){
   $('#today').textContent=new Intl.DateTimeFormat(dateLocale(),{weekday:'long',day:'numeric',month:'long'}).format(new Date());
 }
 renderTodayDates();
-$('#addExercise').onclick=()=>{ openOnly(addExercise()); saveDraft(); }; $('#emptyAddExercise').onclick=()=>{ openOnly(addExercise()); saveDraft(); }; $('#finishSession').onclick=finishSession;
+// Solo una tarjeta nueva entra animada: antes la animación se repetía en cada
+// repintado (cambiar unidad, idioma, sincronizar) y la lista "saltaba".
+const addFresh = () => { const c = addExercise(); c.classList.add('is-new'); openOnly(c); saveDraft(); };
+$('#addExercise').onclick=addFresh; $('#emptyAddExercise').onclick=addFresh; $('#finishSession').onclick=finishSession;
 $('#exampleRoutine').onclick=loadExampleRoutine;
 // Cambiar de unidad no toca el historial (siempre en kg): basta repintar, pero
 // hay que reinterpretar lo ya tecleado, que estaba en la unidad anterior.
@@ -1479,8 +1628,28 @@ function setUnit(next) {
   renderActiveSession(); updateDashboard(); saveDraft();
 }
 // Cambiar la fecha cambia qué cuenta como "la última vez": se repintan las referencias.
-$('#sessionDate').onchange=()=>{ if(activeSession && $('#sessionDate').value) activeSession.date=$('#sessionDate').value; paintDateChip(); cards().forEach(updateLast); saveDraft(); };
-$('#sessionDateReset').onclick=()=>{ if(!activeSession) return; activeSession.date=todayKey(); $('#sessionDate').value=activeSession.date; paintDateChip(); cards().forEach(updateLast); saveDraft(); };
+$('#sessionDate').onchange=()=>setSessionDate($('#sessionDate').value);
+$('#sessionDateReset').onclick=()=>setSessionDate(todayKey());
+$('#pastBannerReset').onclick=()=>setSessionDate(todayKey());
+// Tocar un día de la semana es "quiero anotar ese día": lleva a CAPTURAR con esa
+// fecha (en fuerza o en cardio, lo que esté abierto). Mientras se edita una
+// sesión pasada no hace nada: cambiar de pestaña tiraría la edición.
+$('#streakWeek').addEventListener('click', e => {
+  const day = e.target.closest('.wd[data-date]');
+  if (!day || day.disabled || editingSession) return;
+  $('.tab[data-view="session"]')?.click();
+  if (captureMode === 'cardio') $('#cardioDate').value = day.dataset.date;
+  else setSessionDate(day.dataset.date);
+  const chip = captureMode === 'cardio' ? $('#cardioDate') : $('#sessionDateChip');
+  if (day.dataset.date !== todayKey()) { chip?.classList.remove('is-flash'); void chip?.offsetWidth; chip?.classList.add('is-flash'); }
+  window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
+});
+// Una sesión vacía que nació ayer (la app quedó abierta de un día para otro) no
+// debe amanecer con fecha vieja. Si el día lo eligió la persona, se respeta.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !activeSession || activeSession._datePicked || editingSession) return;
+  if (activeSession.date !== todayKey() && !draftHasContent(collectDraft())) setSessionDate(todayKey());
+});
 $('#editCancel').onclick=exitEditing;
 $('#editSave').onclick=saveEditing;
 $('#editDelete').onclick=deleteEditing;
@@ -1507,14 +1676,28 @@ $('#clearSession').onclick=async ()=>{
   activeSession = makeSession(); clearDraft(); renderActiveSession();
 };
 // Borrar un entrenamiento vive ahora en la vista de edición (#editDelete).
-$$('.tab').forEach(t=>t.onclick=()=>{if(editingSession){ editingSession=null; $('#editList').innerHTML=''; $('#editView').classList.remove('active'); } $$('.tab').forEach(x=>x.classList.toggle('active',x===t));$$('.view').forEach(v=>v.classList.toggle('active',v.id===`${t.dataset.view}View`));if(t.dataset.view==='progress')populateProgress();if(t.dataset.view==='history')renderHistory();if(t.dataset.view==='records')renderPRs();if(t.dataset.view==='config')window.renderConfig?.();});
+// Cambiar de pestaña vuelve arriba (antes quedabas a media página de la vista
+// anterior) y, si hay una edición con cambios, pregunta antes de tirarla.
+$$('.tab').forEach(tab=>tab.onclick=async()=>{
+  if(editingSession){
+    if(editSnapshot()!==editBaseline && !(await showConfirm(t('session.discardEdit'),{danger:true,okText:t('session.discardEditOk')}))) return;
+    editingSession=null; $('#editList').innerHTML=''; $('#editView').classList.remove('active');
+  }
+  $$('.tab').forEach(x=>x.classList.toggle('active',x===tab));
+  $$('.view').forEach(v=>v.classList.toggle('active',v.id===`${tab.dataset.view}View`));
+  window.scrollTo({top:0,behavior:'instant'});
+  if(tab.dataset.view==='progress')populateProgress();if(tab.dataset.view==='history')renderHistory();if(tab.dataset.view==='records')renderPRs();if(tab.dataset.view==='config')window.renderConfig?.();
+});
 $('#historySearch').oninput=renderHistory; $('#historyPeriod').onchange=renderHistory; $('#progressExercise').onchange=renderProgress; $('#themeButton').onclick=()=>document.body.classList.toggle('dark');
 $('#exportData').onclick=()=>{const payload={app:'LOADOUT',version:1,exportedAt:new Date().toISOString(),sessions,templates,cardio,deleted:deletedIds};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`${t('export.filename')}-${todayKey()}.json`;link.click();URL.revokeObjectURL(link.href);window.markBackupDone?.();};
 $('#importData').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(!Array.isArray(payload.sessions))throw new Error();if(!(await showConfirm(t('import.confirm',{n:payload.sessions.length}),{danger:true,okText:t('import.ok')})))return;window.snapshot?.(t('import.reason'));deletedIds=mergeDeleted(deletedIds,payload.deleted);saveDeleted();sessions=payload.sessions;if(Array.isArray(payload.templates)){templates=payload.templates;saveTemplates();}if(Array.isArray(payload.cardio)){cardio=payload.cardio;saveCardio();}save();clearDraft();activeSession=makeSession();renderActiveSession();updateDashboard();await showAlert(t('import.done'));}catch{await showAlert(t('import.invalid'));}finally{event.target.value='';}};
 // Recupera el borrador de la sesión en curso si se recargó/cerró sin finalizar.
 (function restoreDraft(){
   const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');
-  if(draftHasContent(draft) && !yaGuardada(draft)) activeSession=draft; else clearDraft();
+  // Un día elegido a mano sobrevive a que el sistema cierre la app, pero solo
+  // unas horas: al día siguiente, una fecha vieja sin nada anotado es un despiste.
+  const fechaReciente = draft?._datePicked && draft._savedAt && Date.now() - new Date(draft._savedAt) < 12*3600e3;
+  if((draftHasContent(draft) || fechaReciente) && !yaGuardada(draft)) activeSession=draft; else clearDraft();
 })();
 renderActiveSession();updateDashboard();
 // Un borrador de otro día no se reanuda como si fuera lo de hoy: se pregunta.
@@ -1535,7 +1718,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:')navigator.service
 // mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
 window.LOADOUT_TEST = {
   e1rm, exKey, getLastExercise, progressionFor, getActive: () => activeSession, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
-  mergeDeleted, applyDeleted,
+  mergeDeleted, applyDeleted, draftInProgress, collectSession,
   getSessions: () => sessions, setSessions: v => { sessions = v; },
   getTemplates: () => templates, setTemplates: v => { templates = v; },
   getDeleted: () => deletedIds, setDeleted: v => { deletedIds = v; },

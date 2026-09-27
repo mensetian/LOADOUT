@@ -113,7 +113,7 @@ async function saveCardioEntry() {
   resetCardioForm();
   updateDashboard();
   window.driveAutoSync?.();
-  await showAlert(t('cardio.saved', { activity, n: minutes }));
+  showToast(t('cardio.saved', { activity, n: minutes }));
 }
 
 function editCardio(id) {

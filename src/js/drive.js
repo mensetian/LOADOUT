@@ -275,7 +275,7 @@ async function driveSave({ silent = false } = {}) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     setDriveStatus(t('drive.saved',{time:new Date().toLocaleTimeString(dateLocale())}), 'is-ok');
     markBackupDone();
-    if (!silent) await showAlert(t('drive.saveDoneAlert'));
+    if (!silent) showToast(t('drive.saveDoneAlert'));
   } catch (error) {
     setDriveStatus(t('drive.saveError',{error:error.message}), 'is-warn');
     if (!silent) await showAlert(t('drive.saveErrorAlert'));

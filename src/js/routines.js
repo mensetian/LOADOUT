@@ -139,6 +139,7 @@ async function saveEditor() {
     saveRoutinePlan(name, exercises);
   }
   closeEditor();
+  showToast(t('routines.savedToast', { name })); // antes se cerraba sin decir nada
 }
 
 document.querySelector('#newRoutine')?.addEventListener('click', () => openEditor(''));
