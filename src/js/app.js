@@ -454,7 +454,10 @@ function maxWeightFor(name) {
 //   3. Las series salieron parejas (ninguna cayó más de 1 rep por debajo de la
 //      primera): 10·8·6 es llegar al fallo, no dominar la carga.
 // Y no se propone si la última vez fue hace más de 3 semanas: tras un parón lo
-// sensato es repetir, no subir. Sin carga (dominadas, fondos) sube 1 rep.
+// sensato es repetir, no subir.
+// Solo AVISA que toca subir, no dice a cuánto: el salto depende de los discos y
+// mancuernas de cada gimnasio y de cómo te sentís, y eso lo decide quien entrena.
+// Devuelve la carga de trabajo (`w`, 0 si es sin carga) o null.
 const PROGRESS_MAX_GAP_DAYS = 21;
 function progressionFor(name) {
   const key = exKey(name); if (!key) return null;
@@ -473,14 +476,7 @@ function progressionFor(name) {
   if (!now.length || now.length < prev.length) return null;
   if (now.some((r, i) => r < (prev[i] ?? prev.at(-1)))) return null;
   if (!now[0] || Math.min(...now) < now[0] - 1) return null;
-  return w ? { w, to: w + loadStep(w) } : { w: 0, reps: 1 };
-}
-// Cuánto subir: el salto más chico que existe en un gimnasio normal para esa
-// carga. Con mancuernas (peso de UNA) los saltos son de 1-2 kg; con barra, de
-// 2,5 kg (un disco de 1,25 por lado). En libras, 2,5 y 5 lb.
-function loadStep(kg) {
-  if (unit() === 'lb') return fromUnit(toUnit(kg, 'lb') < 45 ? 2.5 : 5, 'lb');
-  return kg < 10 ? 1 : kg < 20 ? 2 : 2.5;
+  return { w };
 }
 // Todo lo que la tarjeta necesita saber del historial de un movimiento.
 const refFor = name => ({ last: getLastExercise(name), prog: progressionFor(name) });
@@ -489,24 +485,29 @@ const refFor = name => ({ last: getLastExercise(name), prog: progressionFor(name
 // vive fuera del placeholder para que no desaparezca al escribir.
 function updateLast(card) {
   const name = $('.exercise-name', card).value;
-  const ref = refFor(name), e = ref.last;
+  const ref = refFor(name), e = ref.last, p = ref.prog;
   const pr = maxWeightFor(name);
-  // Compacta y de un vistazo: "★ 60 kg   ↺ 24 ago · 60×8 · 60×8". El récord en
-  // amarillo (contexto), la última vez en gris (la marca a superar hoy).
-  const prEl = $('.lt-pr', card), prevEl = $('.lt-prev', card), upEl = $('.lt-up', card);
+  // La última vez es la marca a superar hoy, así que es lo primero que se lee
+  // de la tarjeta: cuándo fue y cada serie como una ficha, no una línea gris de
+  // 10px. El récord va al costado, como contexto.
+  const box = $('.last-time', card);
+  box.classList.toggle('is-empty', !e);
+  box.classList.toggle('is-up', !!(e && p));
+  $('.lt-label', card).textContent = t('exercise.lastLabel');
+  $('.lt-when', card).textContent = e ? `${daysAgoLabel(e.date)} · ${dateShort(e.date)}` : '';
+  const prEl = $('.lt-pr', card);
   prEl.hidden = !pr;
-  prEl.textContent = pr ? `★ ${showW(pr)}` : '';
-  prevEl.classList.toggle('is-hint', !e);
-  prevEl.textContent = e
-    ? `↺ ${dateShort(e.date)} · ${e.sets.map(x=>pairLabel(toDisplay(x.weight), x.reps)).join(' · ')}`
-    : t('exercise.noLast');
-  // La subida se explica en palabras: un número distinto en ANT. sin decir por
-  // qué parecería un error de la app.
-  const p = ref.prog;
+  prEl.textContent = pr ? t('exercise.prShort', { w: showW(pr) }) : '';
+  // Con subida recomendada, las series de trabajo (las que tocaría subir) se marcan.
+  $('.lt-sets', card).innerHTML = e ? e.sets.map(x =>
+    `<span class="lt-set${p && (x.weight || 0) === p.w ? ' is-work' : ''}">${escapeHtml(pairLabel(toDisplay(x.weight), x.reps))}</span>`).join('') : '';
+  const hint = $('.lt-hint', card);
+  hint.hidden = !!e;
+  hint.textContent = e ? '' : t('exercise.noLast');
+  // Avisa que toca subir y por qué, sin proponer un número: el peso lo elegís vos.
+  const upEl = $('.lt-up', card);
   upEl.hidden = !p;
-  upEl.textContent = !p ? '' : p.w
-    ? t('exercise.progressLoad', { from: toDisplay(p.w), to: showW(p.to) })
-    : t('exercise.progressReps');
+  upEl.innerHTML = p ? `<b>${escapeHtml(t(p.w ? 'exercise.progressLoad' : 'exercise.progressReps'))}</b><small>${escapeHtml(t('exercise.progressWhy'))}</small>` : '';
   // Sin serie anterior en esa posición, la columna muestra el objetivo de la
   // fila (heredado de la serie de arriba o de la plantilla) marcado con "→",
   // para que el plan siga a la vista sin meterse dentro del campo.
@@ -516,26 +517,24 @@ function updateLast(card) {
 // Lo que la app propone para una serie, y lo MISMO que se escribe al aceptarla.
 // Antes eran dos cosas: la columna ANT. mostraba tu última sesión y el toque
 // estampaba el objetivo de la rutina, así que un mismo gesto daba números que
-// no estaban a la vista. Manda lo que hiciste en esa serie la última vez (con
-// la subida aplicada a las series de trabajo, si toca); si ese día hubo menos
-// series, el objetivo de la fila. Pesos en kg.
+// no estaban a la vista. Manda lo que hiciste en esa serie la última vez; si ese
+// día hubo menos series, el objetivo de la fila. Pesos en kg. Si toca subir, la
+// serie de trabajo se marca (`up`) pero conserva sus números: la app no elige
+// el peso nuevo.
 function suggestionFor(card, r, ref = refFor($('.exercise-name', card).value)) {
   const s = ref.last?.sets?.[$$('.set-row', card).indexOf(r)];
   if (s) {
     const w = s.weight || 0, reps = s.reps || 0, p = ref.prog;
-    // Solo suben las series de trabajo: el calentamiento y las series de
-    // descarga (más livianas) se repiten como estaban.
-    if (p && w === p.w) return p.w ? { w: p.to, reps, prev: true, up: true } : { w, reps: reps + p.reps, prev: true, up: true };
-    return { w, reps, prev: true };
+    // Solo se marcan las series de trabajo: el calentamiento y las de descarga
+    // (más livianas) no son las que toca subir.
+    return { w, reps, prev: true, up: !!p && w === p.w };
   }
   const g = rowTarget(r, exKey($('.exercise-name', card).value));
   if (!g) return null;
   // Una serie de más que la rutina trae con tu carga de trabajo (objetivo
-  // salido del historial) sube igual que las demás. Una heredada de algo ya
-  // subido o tecleado hoy no coincide con p.w, así que no sube dos veces.
+  // salido del historial) se marca igual que las demás.
   const p = ref.prog;
-  if (p?.w && r.dataset.targetFor && g.w === p.w) return { w: p.to, reps: g.reps, prev: false, up: true };
-  return { ...g, prev: false };
+  return { ...g, prev: false, up: !!p?.w && !!r.dataset.targetFor && g.w === p.w };
 }
 // La columna ANT. es a la vez la referencia y el botón para usarla: mientras la
 // serie está vacía se ve como algo que se toca; ya anotada, queda solo como dato.
@@ -548,8 +547,10 @@ function paintSuggestion(card, r, ref) {
   el.disabled = !sg || !empty;
   // El corte invisible antes de × deja partir "132.3×8" en dos líneas en vez de
   // recortarlo: es el número que se va a escribir, tiene que leerse entero.
-  const mark = sg?.up ? '↑ ' : sg && !sg.prev ? '→ ' : '';
-  el.textContent = sg ? mark + pairLabel(toDisplay(sg.w), sg.reps).replace('×', '​×') : (ref.last ? '—' : '');
+  // La flecha va DESPUÉS del número: "60×8 ↑" es "hiciste esto, toca subir";
+  // delante se leía como "subí a 60×8".
+  const mark = sg && !sg.prev ? '→ ' : '';
+  el.textContent = sg ? mark + pairLabel(toDisplay(sg.w), sg.reps).replace('×', '​×') + (sg.up ? ' ↑' : '') : (ref.last ? '—' : '');
 }
 // Aceptar la sugerencia: solo rellena lo vacío, lo tecleado a mano siempre manda.
 function applySuggestion(card, r) {
@@ -1709,7 +1710,10 @@ renderActiveSession();updateDashboard();
     { okText: t('session.oldDraftKeep'), cancelText: t('session.oldDraftDrop') });
   if (!seguir) { clearDraft(); activeSession = makeSession(); renderActiveSession(); }
 })();
-window.onLangChange=()=>{ renderTodayDates(); renderActiveSession(); updateDashboard(); };
+// Repintar parte de activeSession, que no se entera de lo agregado en pantalla:
+// sin leer la pantalla primero (como hace setUnit), cambiar de idioma a mitad
+// del entrenamiento borraba los movimientos cargados desde que se abrió la app.
+window.onLangChange=()=>{ if(activeSession) activeSession=collectDraft(); renderTodayDates(); renderActiveSession(); updateDashboard(); };
 
 if('serviceWorker' in navigator && location.protocol!=='file:')navigator.serviceWorker.register('sw.js');
 

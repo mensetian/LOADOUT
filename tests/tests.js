@@ -264,7 +264,7 @@ function run(frameWindow) {
     test('propone subir tras dos sesiones completas con la misma carga', () => {
       const p = progreso(tres(60, 8), tres(60, 8));
       equal(p && p.w, 60, 'reconoce la carga de trabajo');
-      equal(p && p.to, 62.5, 'y propone el salto de barra: +2,5 kg');
+      assert(p && !('to' in p), 'avisa que toca subir, sin proponer a cuánto');
     });
 
     test('con una sola sesión todavía no hay nada consolidado', () => {
@@ -286,7 +286,7 @@ function run(frameWindow) {
       const cae = [[60, 10], [60, 8], [60, 6]];
       equal(progreso(cae, cae), null, '10·8·6 no es dominar la carga');
       const p = progreso([[60, 8], [60, 8], [60, 7]], [[60, 8], [60, 8], [60, 7]]);
-      equal(p && p.to, 62.5, 'caer 1 rep sí se tolera');
+      equal(p && p.w, 60, 'caer 1 rep sí se tolera');
     });
 
     test('tras un parón de más de 3 semanas se repite, no se sube', () => {
@@ -298,14 +298,14 @@ function run(frameWindow) {
       equal(p && p.w, 60, 'la carga de trabajo es la más alta');
     });
 
-    test('con mancuernas el salto es más chico', () => {
+    test('con mancuernas también avisa', () => {
       const p = progreso(tres(12, 10), tres(12, 10), { nombre: 'Curl con mancuernas' });
-      equal(p && p.to, 14, '12 kg -> 14 kg, no 14,5');
+      equal(p && p.w, 12, 'la carga de trabajo es la de UNA mancuerna');
     });
 
-    test('sin carga, la progresión es una repetición más', () => {
+    test('sin carga también avisa (toca sumar repeticiones)', () => {
       const p = progreso(tres(0, 10), tres(0, 10), { nombre: 'Dominadas' });
-      equal(p && p.reps, 1, '+1 rep por serie');
+      equal(p && p.w, 0, 'sin carga de trabajo');
     });
 
     group('UNIDADES (kg / lb)');
