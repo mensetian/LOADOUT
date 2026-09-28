@@ -488,6 +488,20 @@ function run(frameWindow) {
       equal(w.applyDeleted(list, stampOf, {}).length, 2, 'no debe descartar nada');
     });
 
+    group('PUBLICACIÓN');
+    test('index.html pide sus archivos con la misma versión que la caché del service worker', () => {
+      // XHR síncrono a propósito: los tests son síncronos y esto es solo leer texto.
+      const get = u => { const x = new XMLHttpRequest(); x.open('GET', u + '?t=' + Date.now(), false); x.send(); return x.responseText; };
+      const cache = (get('../sw.js').match(/const CACHE = 'loadout-v(\d+)'/) || [])[1];
+      const html = get('../index.html');
+      const refs = [...html.matchAll(/(?:src|href)="src\/(?:js|css)\/[\w.]+\?v=(\d+)"/g)].map(m => m[1]);
+      const plain = html.match(/(?:src|href)="src\/(?:js|css)\/[\w.]+\.(?:js|css)"/g) || [];
+      assert(cache, 'no se encontró la versión en sw.js');
+      equal(plain, [], 'todo .js/.css propio debe llevar ?v=');
+      assert(refs.length >= 9, `se esperaban ≥ 9 archivos versionados, hay ${refs.length}`);
+      equal([...new Set(refs)], [cache], `?v= de index.html debe ser ${cache}, igual que CACHE en sw.js`);
+    });
+
     group('FECHA ELEGIDA');
     // Solo se toca la marca en memoria de la sesión activa y se restaura: nada
     // de esto escribe en localStorage.
