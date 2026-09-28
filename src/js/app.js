@@ -487,27 +487,25 @@ function updateLast(card) {
   const name = $('.exercise-name', card).value;
   const ref = refFor(name), e = ref.last, p = ref.prog;
   const pr = maxWeightFor(name);
-  // La última vez es la marca a superar hoy, así que es lo primero que se lee
-  // de la tarjeta: cuándo fue y cada serie como una ficha, no una línea gris de
-  // 10px. El récord va al costado, como contexto.
-  const box = $('.last-time', card);
-  box.classList.toggle('is-empty', !e);
-  box.classList.toggle('is-up', !!(e && p));
-  $('.lt-label', card).textContent = t('exercise.lastLabel');
-  $('.lt-when', card).textContent = e ? `${daysAgoLabel(e.date)} · ${dateShort(e.date)}` : '';
+  // Una sola línea que explica la columna ANT.: de cuándo son esos números. Las
+  // series NO se repiten acá: ya están en ANT., alineadas con la fila que
+  // anotás, y verlas dos veces confundía más de lo que ayudaba.
+  $('.last-time', card).classList.toggle('is-empty', !e);
+  $('.lt-when', card).innerHTML = e
+    ? `${escapeHtml(t('exercise.lastLabel'))} · <b>${escapeHtml(daysAgoLabel(e.date))}</b> · ${escapeHtml(dateShort(e.date))}` : '';
   const prEl = $('.lt-pr', card);
   prEl.hidden = !pr;
-  prEl.textContent = pr ? t('exercise.prShort', { w: showW(pr) }) : '';
-  // Con subida recomendada, las series de trabajo (las que tocaría subir) se marcan.
-  $('.lt-sets', card).innerHTML = e ? e.sets.map(x =>
-    `<span class="lt-set${p && (x.weight || 0) === p.w ? ' is-work' : ''}">${escapeHtml(pairLabel(toDisplay(x.weight), x.reps))}</span>`).join('') : '';
+  prEl.textContent = pr ? `★ ${showW(pr)}` : '';
+  prEl.title = t('exercise.prTitle');
   const hint = $('.lt-hint', card);
   hint.hidden = !!e;
   hint.textContent = e ? '' : t('exercise.noLast');
-  // Avisa que toca subir y por qué, sin proponer un número: el peso lo elegís vos.
+  // Avisa que toca subir sin proponer un número. El porqué va en el título:
+  // en pantalla basta la etiqueta, y el ↑ de ANT. marca las series que suben.
   const upEl = $('.lt-up', card);
   upEl.hidden = !p;
-  upEl.innerHTML = p ? `<b>${escapeHtml(t(p.w ? 'exercise.progressLoad' : 'exercise.progressReps'))}</b><small>${escapeHtml(t('exercise.progressWhy'))}</small>` : '';
+  upEl.innerHTML = p ? `<b>${escapeHtml(t(p.w ? 'exercise.progressLoad' : 'exercise.progressReps'))}</b> · ${escapeHtml(t('exercise.progressHow'))}` : '';
+  upEl.title = p ? t('exercise.progressWhy') : '';
   // Sin serie anterior en esa posición, la columna muestra el objetivo de la
   // fila (heredado de la serie de arriba o de la plantilla) marcado con "→",
   // para que el plan siga a la vista sin meterse dentro del campo.

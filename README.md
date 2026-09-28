@@ -47,13 +47,13 @@ Decisiones de diseño que marcan el carácter del proyecto:
   nº de serie— escribe justo esos valores; lo tecleado a mano nunca se pisa.
 - **Series de la última vez** — al nombrar un movimiento que ya hiciste, la tarjeta
   toma tantas series como hiciste esa vez. Cada serie nueva parte de la de arriba.
-- **Última vez** — cada tarjeta abre con un recuadro: cuándo fue (*hace 3 días · 23 sept*),
-  cada serie como una ficha y el récord al costado.
+- **Anterior** — arriba de las series, una línea dice de cuándo son los números de la
+  columna ANT. (*ANTERIOR · hace 3 días · 23 sept*) y el récord al costado (★).
 - **Sobrecarga progresiva (↑)** — avisa *Recomendado subir* solo cuando la carga está
   consolidada: las dos últimas sesiones con la misma carga de trabajo, sin perder
   repeticiones y con series parejas (máx. 1 rep de caída), y la última hace ≤ 3 semanas.
-  No propone a cuánto: ANT. sigue mostrando lo de la última vez con un ↑ en las series
-  de trabajo, y el peso nuevo lo elegís vos. Nunca avisa dos subidas seguidas.
+  No propone a cuánto: una etiqueta *↑ TOCA SUBIR LA CARGA* y un ↑ en las series de
+  trabajo de ANT., que siguen mostrando lo de la última vez; el peso nuevo lo elegís vos. Nunca avisa dos subidas seguidas.
 - **Finalizar sesión** — guarda, o actualiza si estabas editando una sesión vieja. Un
   guardado normal avisa con una franja abajo que se va sola; si hubo récord, aparece
   una hoja con el valor nuevo y el anterior tachado.
