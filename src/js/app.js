@@ -519,20 +519,49 @@ function updateLast(card) {
 // día hubo menos series, el objetivo de la fila. Pesos en kg. Si toca subir, la
 // serie de trabajo se marca (`up`) pero conserva sus números: la app no elige
 // el peso nuevo.
+// Pero si hoy ya cambiaste el peso en una serie de arriba, las de abajo que
+// iban con ese mismo peso pasan al nuevo (`was` guarda el de antes): subiste de
+// 60 a 62.5 en la primera y la segunda seguía ofreciendo 60, así que el toque
+// estampaba un número que ya no vale. Solo se toca ESE peso: con 40 de
+// calentamiento y 60 de trabajo, cambiar el calentamiento no mueve el trabajo.
 function suggestionFor(card, r, ref = refFor($('.exercise-name', card).value)) {
-  const s = ref.last?.sets?.[$$('.set-row', card).indexOf(r)];
+  const rows = $$('.set-row', card), i = rows.indexOf(r);
+  const moved = movedWeights(card, rows.slice(0, i), ref);
+  const carry = sg => {
+    const w = moved.get(sg.w);
+    return sg.w && w != null && w !== sg.w ? { ...sg, w, was: sg.w, prev: false, up: false } : sg;
+  };
+  const s = ref.last?.sets?.[i];
   if (s) {
     const w = s.weight || 0, reps = s.reps || 0, p = ref.prog;
     // Solo se marcan las series de trabajo: el calentamiento y las de descarga
     // (más livianas) no son las que toca subir.
-    return { w, reps, prev: true, up: !!p && w === p.w };
+    return carry({ w, reps, prev: true, up: !!p && w === p.w });
   }
   const g = rowTarget(r, exKey($('.exercise-name', card).value));
   if (!g) return null;
   // Una serie de más que la rutina trae con tu carga de trabajo (objetivo
   // salido del historial) se marca igual que las demás.
   const p = ref.prog;
-  return { ...g, prev: false, up: !!p?.w && !!r.dataset.targetFor && g.w === p.w };
+  return carry({ ...g, prev: false, up: !!p?.w && !!r.dataset.targetFor && g.w === p.w });
+}
+// Peso de antes → peso tecleado hoy, en kg, según las filas dadas (en orden: la
+// última que tocó un peso manda, y volver a teclear el de antes lo deshace).
+// "El de antes" es lo que esa fila tenía propuesto sin arrastres: su serie de
+// la última vez o, si no la hubo, su objetivo.
+function movedWeights(card, rows, ref) {
+  const map = new Map(), key = exKey($('.exercise-name', card).value);
+  rows.forEach(r => {
+    const typed = String($('.set-weight', r).value).trim();
+    if (!typed) return;
+    const s = ref.last?.sets?.[$$('.set-row', card).indexOf(r)];
+    const was = s ? s.weight || 0 : rowTarget(r, key)?.w || 0;
+    if (!was) return;
+    // Comparado en la unidad en pantalla: en lb, 132.3 es el mismo 60 kg de
+    // antes aunque al pasarlo a kg dé 60.01.
+    map.set(was, num(typed) === toDisplay(was) ? was : fromDisplay(num(typed)));
+  });
+  return map;
 }
 // La columna ANT. es a la vez la referencia y el botón para usarla: mientras la
 // serie está vacía se ve como algo que se toca; ya anotada, queda solo como dato.
@@ -549,6 +578,9 @@ function paintSuggestion(card, r, ref) {
   // delante se leía como "subí a 60×8".
   const mark = sg && !sg.prev ? '→ ' : '';
   el.textContent = sg ? mark + pairLabel(toDisplay(sg.w), sg.reps).replace('×', '​×') + (sg.up ? ' ↑' : '') : (ref.last ? '—' : '');
+  // Con el peso arrastrado, la columna ya no muestra lo de la última vez: queda
+  // en el título para no perderlo.
+  el.title = sg?.was != null ? t('set.carried', { was: pairLabel(toDisplay(sg.was), sg.reps) }) : t('set.useSuggestion');
 }
 // Aceptar la sugerencia: solo rellena lo vacío, lo tecleado a mano siempre manda.
 function applySuggestion(card, r) {
@@ -616,7 +648,13 @@ function addSet(card, values = {}) {
     refreshReady(card);
     if (node.isConnected) paintSuggestion(card, node, refFor($('.exercise-name',card).value));
   };
-  wIn.addEventListener('input', syncFilled); rIn.addEventListener('input', syncFilled);
+  // El peso de una serie cambia lo que se propone en las de abajo.
+  const repaintBelow = () => {
+    if (!node.isConnected) return;
+    const ref = refFor($('.exercise-name',card).value), rows = $$('.set-row',card);
+    rows.slice(rows.indexOf(node) + 1).forEach(r => paintSuggestion(card, r, ref));
+  };
+  wIn.addEventListener('input', () => { syncFilled(); repaintBelow(); }); rIn.addEventListener('input', syncFilled);
   // Lo tecleado cuenta como serie completada al salir del campo (o con "Listo"),
   // no con el primer dígito: si no, el descanso arrancaba a mitad de escribir.
   let filledAtFocus = false;
@@ -635,12 +673,11 @@ function addSet(card, values = {}) {
   // que es donde está el número que se va a escribir.
   const accept = () => {
     const was = node.classList.contains('is-filled');
-    applySuggestion(card, node); syncFilled(); saveDraft();
+    applySuggestion(card, node); syncFilled(); repaintBelow(); saveDraft();
     if (!was && node.classList.contains('is-filled')) onSetDone(node);
   };
   const numBtn = $('.set-number',node), prevBtn = $('.set-prev',node);
   numBtn.title = t('set.confirmTitle');
-  prevBtn.title = t('set.useSuggestion');
   numBtn.onclick = accept;
   prevBtn.onclick = accept;
   $('.set-rows',card).append(node); refreshSetNumbers(card); syncFilled();
