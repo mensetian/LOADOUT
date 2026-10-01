@@ -2,7 +2,7 @@
 // OJO: al subirla, cambiar también el `?v=` de index.html al MISMO número (hay un
 // test que lo vigila). Es lo que impide que un teléfono junte el HTML nuevo con
 // el JS viejo: Chrome guarda los .js en memoria y ni le pregunta a este worker.
-const CACHE = 'loadout-v48';
+const CACHE = 'loadout-v49';
 const ASSETS = ['./', './index.html', './manifest.json', './src/css/styles.css',
   './src/js/config.js', './src/js/i18n.js', './src/js/cardio.js', './src/js/app.js', './src/js/backup.js', './src/js/drive.js', './src/js/settings.js', './src/js/routines.js', './src/img/icon.svg',
   './src/img/icon-180.png', './src/img/icon-192.png', './src/img/icon-512.png', './src/img/icon-maskable-512.png'];

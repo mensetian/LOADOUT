@@ -455,23 +455,45 @@ function maxWeightFor(name) {
 //      primera): 10·8·6 es llegar al fallo, no dominar la carga.
 // Y no se propone si la última vez fue hace más de 3 semanas: tras un parón lo
 // sensato es repetir, no subir.
+// Con un rango de reps en ajustes (8–12, por ejemplo) la regla es otra, la de
+// quien entrena por rango: basta UNA sesión en la que todas las series de
+// trabajo llegaron al máximo, sin hacer menos series que la vez anterior. Sin
+// rango, "consolidado" se adivina como arriba, y entonces 5·5·5 repetido
+// también pedía subir. Sin carga sigue la regla de siempre: llegar al máximo
+// en dominadas no dice nada de sumar reps.
 // Solo AVISA que toca subir, no dice a cuánto: el salto depende de los discos y
 // mancuernas de cada gimnasio y de cómo te sentís, y eso lo decide quien entrena.
 // Devuelve la carga de trabajo (`w`, 0 si es sin carga) o null.
 const PROGRESS_MAX_GAP_DAYS = 21;
+// Días entre una sesión pasada y el día que estás anotando.
+const gapDays = date => Math.round((new Date((activeSession?.date || todayKey()) + 'T12:00') - new Date(date + 'T12:00')) / 86400000);
+// Rango de reps de la doble progresión (ajustes), guardado como "8-12". Se suman
+// reps hasta el máximo; ahí toca subir el peso, y con el peso nuevo el mínimo es
+// la meta. Sin rango (Auto) se usa la regla consolidada.
+const REP_RANGE_KEY = 'loadout-rep-range';
+function repRange() {
+  const m = /^(\d+)-(\d+)$/.exec(localStorage.getItem(REP_RANGE_KEY) || '');
+  return m && +m[1] < +m[2] ? { min: +m[1], max: +m[2] } : null;
+}
 function progressionFor(name) {
   const key = exKey(name); if (!key) return null;
   const hist = refSessions()
     .map(s => ({ date: s.date, e: s.exercises.find(e => exKey(e.name) === key && e.sets?.length) }))
     .filter(x => x.e).slice(0, 2);
-  if (hist.length < 2) return null;
+  if (!hist.length) return null;
   const [last, before] = hist;
-  const gap = Math.round((new Date((activeSession?.date || todayKey()) + 'T12:00') - new Date(last.date + 'T12:00')) / 86400000);
-  if (gap > PROGRESS_MAX_GAP_DAYS) return null;
+  if (gapDays(last.date) > PROGRESS_MAX_GAP_DAYS) return null;
   const top = e => Math.max(0, ...e.sets.map(x => x.weight || 0));
-  const w = top(last.e);
-  if (w !== top(before.e)) return null;
-  const work = e => e.sets.filter(x => (x.weight || 0) === w).map(x => x.reps || 0);
+  const w = top(last.e), goal = repRange()?.max || 0;
+  const workAt = (e, kg) => e.sets.filter(x => (x.weight || 0) === kg).map(x => x.reps || 0);
+  if (goal && w) {
+    const now = workAt(last.e, w);
+    if (!now.length || Math.min(...now) < goal) return null;
+    if (before && now.length < workAt(before.e, top(before.e)).length) return null;
+    return { w, goal };
+  }
+  if (!before || w !== top(before.e)) return null;
+  const work = e => workAt(e, w);
   const now = work(last.e), prev = work(before.e);
   if (!now.length || now.length < prev.length) return null;
   if (now.some((r, i) => r < (prev[i] ?? prev.at(-1)))) return null;
@@ -480,6 +502,88 @@ function progressionFor(name) {
 }
 // Todo lo que la tarjeta necesita saber del historial de un movimiento.
 const refFor = name => ({ last: getLastExercise(name), prog: progressionFor(name) });
+
+// --- Hoy contra la última vez -----------------------------------------------
+// La pregunta de cada sesión: ¿hice más que la última vez? Antes nada la
+// contestaba: el ↑ solo hablaba al final de un ciclo y los récords solo miraban
+// el peso, así que las sesiones de sumar reps (la mayoría) pasaban sin aviso, y
+// 50×10 durante semanas no se veía. Se compara SOLO el trabajo: las series con
+// el peso más alto del día (sin carga, todas), así el calentamiento y las de
+// descarga no cuentan. La regla entra en una línea:
+//   - mismo peso: reps de las primeras N series de trabajo, con N las de la
+//     última vez (una serie de más no infla nada);
+//   - más peso: superado al llegar a las mismas series, todas en el mínimo del
+//     rango (sin rango, alcanza con completarlas);
+//   - menos peso: no se compara, puede ser una semana de descarga a propósito.
+// `done`: ya hiciste tantas series de trabajo como la última vez; antes de eso
+// el resultado es "por ahora". Pesos en kg, solo series con reps. La tolerancia
+// absorbe el redondeo de las libras (132.3 lb son 60.01 kg, no una subida).
+const SAME_KG = 0.1;
+function compareSets(prevSets, nowSets, range = repRange()) {
+  const done = sets => sets.filter(x => (x.reps || 0) > 0);
+  const top = sets => Math.max(0, ...sets.map(x => x.weight || 0));
+  const work = (sets, w) => sets.filter(x => (x.weight || 0) > w - SAME_KG).map(x => x.reps);
+  const ps = done(prevSets || []), ns = done(nowSets || []);
+  const from = top(ps), to = top(ns), prev = work(ps, from), now = work(ns, to);
+  if (!prev.length || !now.length) return null;
+  const base = { from, to, done: now.length >= prev.length };
+  if (Math.abs(to - from) < SAME_KG) {
+    const n = Math.min(now.length, prev.length), sum = a => a.slice(0, n).reduce((t, r) => t + r, 0);
+    const delta = sum(now) - sum(prev);
+    return { ...base, kind: delta > 0 ? 'more' : delta < 0 ? 'less' : 'same', delta };
+  }
+  if (to < from) return { ...base, kind: 'lighter' };
+  const floor = range?.min || 0;
+  return { ...base, kind: 'heavier', floor, low: now.some(r => r < floor) };
+}
+// Lo anotado hoy en la tarjeta, en kg: solo las series con reps (las hechas).
+const todaySets = card => $$('.set-row', card)
+  .map(r => ({ weight: fromDisplay(num($('.set-weight', r).value)), reps: num($('.set-reps', r).value) }))
+  .filter(s => s.reps > 0);
+// La línea de estado de la tarjeta, que es la misma del aviso de subir: no suma
+// ruido. Antes de anotar dice qué hace falta (superar por una rep, o que toca
+// subir); mientras anotás, cómo vas contra la última vez. Quedar igual o por
+// debajo se pinta neutro, nunca en rojo: un mal día no es un fracaso.
+function paintStatus(card, ref) {
+  const el = $('.lt-up', card), e = ref.last, p = ref.prog;
+  let tone = 'win', head = '', tail = '', title = '';
+  if (e) {
+    // Más liviano solo se afirma con la tarjeta completa: antes puede ser el
+    // calentamiento, y mientras tanto sigue a la vista el objetivo.
+    const now = todaySets(card), c0 = now.length ? compareSets(e.sets, now) : null;
+    const c = c0?.kind === 'lighter' && !card.classList.contains('is-ready') ? null : c0;
+    const top = Math.max(0, ...e.sets.filter(x => x.reps > 0).map(x => x.weight || 0));
+    title = t('status.why', { sets: e.sets.filter(x => x.reps > 0 && (x.weight || 0) > top - SAME_KG)
+      .map(x => pairLabel(toDisplay(x.weight || 0), x.reps)).join(' · ') });
+    const kg = () => `${Math.round(Math.abs(toDisplay(c.to) - toDisplay(c.from)) * 10) / 10} ${unitLabel()}`;
+    if (gapDays(e.date) > PROGRESS_MAX_GAP_DAYS) {
+      tone = 'even'; head = t('status.break'); tail = t('status.breakHow');
+    } else if (c?.kind === 'more') {
+      head = countLabel('status.more', c.delta); tail = t(c.done ? 'status.beaten' : 'status.sofar');
+    } else if (c?.kind === 'same') {
+      tone = 'even'; head = t('status.same'); tail = t(c.done ? 'status.sameDone' : 'status.sofar');
+    } else if (c?.kind === 'less') {
+      tone = 'low'; head = countLabel('status.less', -c.delta); tail = t(c.done ? 'status.lessDone' : 'status.sofar');
+    } else if (c?.kind === 'heavier') {
+      tone = c.low ? 'low' : c.done ? 'win' : 'even'; head = `+${kg()}`;
+      tail = c.low ? t('status.underMin', { n: c.floor }) : c.done ? t('status.beaten')
+        : c.floor ? t('status.keepMin', { n: c.floor }) : t('status.sofar');
+    } else if (c?.kind === 'lighter') {
+      tone = 'even'; head = `−${kg()}`; tail = t('status.lighter');
+    } else if (p) {
+      // Avisa que toca subir sin proponer un número; el ↑ de ANT. marca las
+      // series que suben.
+      head = t(p.w ? 'exercise.progressLoad' : 'exercise.progressReps'); tail = t('exercise.progressHow');
+      title = t(p.goal ? 'exercise.progressWhyGoal' : 'exercise.progressWhy', { n: p.goal });
+    } else {
+      tone = 'even'; head = t('status.target'); tail = t('status.targetHow');
+    }
+  }
+  el.hidden = !head;
+  el.dataset.tone = tone;
+  el.innerHTML = head ? `<b>${escapeHtml(head)}</b> · ${escapeHtml(tail)}` : '';
+  el.title = head ? title : '';
+}
 // Refresca las dos referencias de la tarjeta: la línea "última vez · récord" y
 // la columna ANT. de cada serie (misma serie de la última sesión). La columna
 // vive fuera del placeholder para que no desaparezca al escribir.
@@ -500,12 +604,7 @@ function updateLast(card) {
   const hint = $('.lt-hint', card);
   hint.hidden = !!e;
   hint.textContent = e ? '' : t('exercise.noLast');
-  // Avisa que toca subir sin proponer un número. El porqué va en el título:
-  // en pantalla basta la etiqueta, y el ↑ de ANT. marca las series que suben.
-  const upEl = $('.lt-up', card);
-  upEl.hidden = !p;
-  upEl.innerHTML = p ? `<b>${escapeHtml(t(p.w ? 'exercise.progressLoad' : 'exercise.progressReps'))}</b> · ${escapeHtml(t('exercise.progressHow'))}` : '';
-  upEl.title = p ? t('exercise.progressWhy') : '';
+  paintStatus(card, ref);
   // Sin serie anterior en esa posición, la columna muestra el objetivo de la
   // fila (heredado de la serie de arriba o de la plantilla) marcado con "→",
   // para que el plan siga a la vista sin meterse dentro del campo.
@@ -646,7 +745,9 @@ function addSet(card, values = {}) {
   const syncFilled = () => {
     node.classList.toggle('is-filled', !!String(rIn.value).trim());
     refreshReady(card);
-    if (node.isConnected) paintSuggestion(card, node, refFor($('.exercise-name',card).value));
+    if (!node.isConnected) return;
+    const ref = refFor($('.exercise-name',card).value);
+    paintSuggestion(card, node, ref); paintStatus(card, ref);
   };
   // El peso de una serie cambia lo que se propone en las de abajo.
   const repaintBelow = () => {
@@ -1758,7 +1859,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:')navigator.service
 // nivel superior no quedan colgadas de `window`, así que hay que exponerlas a
 // mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
 window.LOADOUT_TEST = {
-  e1rm, exKey, getLastExercise, progressionFor, getActive: () => activeSession, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
+  e1rm, exKey, getLastExercise, progressionFor, compareSets, getActive: () => activeSession, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
   mergeDeleted, applyDeleted, draftInProgress, collectSession,
   getSessions: () => sessions, setSessions: v => { sessions = v; },
   getTemplates: () => templates, setTemplates: v => { templates = v; },

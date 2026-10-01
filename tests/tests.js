@@ -65,6 +65,7 @@ function run(frameWindow) {
   // Copias de seguridad en memoria: las devolvemos intactas al terminar.
   const realSessions = w.getSessions(), realTemplates = w.getTemplates(), realCardio = w.getCardio();
   const realUnit = localStorage.getItem('loadout-unit');
+  const realRange = localStorage.getItem('loadout-rep-range');
 
   try {
     group('FUSIÓN DE SESIONES (Drive)');
@@ -247,8 +248,9 @@ function run(frameWindow) {
     group('SOBRECARGA PROGRESIVA');
     // Arma dos sesiones del mismo movimiento (la vieja primero) y pregunta con
     // "hoy" = 26 sep. Cada lado es una lista de [peso, reps].
-    const progreso = (antes, ultima, { fechas = ['2026-09-19', '2026-09-23'], nombre = 'Press banca' } = {}) => {
+    const progreso = (antes, ultima, { fechas = ['2026-09-19', '2026-09-23'], nombre = 'Press banca', rango = '' } = {}) => {
       localStorage.setItem('loadout-unit', 'kg');
+      if (rango) localStorage.setItem('loadout-rep-range', rango); else localStorage.removeItem('loadout-rep-range');
       w.setSessions([
         session('g-1', fechas[0], null, [move(nombre, antes)]),
         session('g-2', fechas[1], null, [move(nombre, ultima)]),
@@ -257,6 +259,7 @@ function run(frameWindow) {
       act.date = '2026-09-26';
       const out = w.progressionFor(nombre);
       act.date = fecha;
+      localStorage.removeItem('loadout-rep-range');
       return out;
     };
     const tres = (kg, reps) => [[kg, reps], [kg, reps], [kg, reps]];
@@ -306,6 +309,94 @@ function run(frameWindow) {
     test('sin carga también avisa (toca sumar repeticiones)', () => {
       const p = progreso(tres(0, 10), tres(0, 10), { nombre: 'Dominadas' });
       equal(p && p.w, 0, 'sin carga de trabajo');
+    });
+
+    test('con rango de reps: sube al llegar a la meta en todas las series de trabajo', () => {
+      const p = progreso(tres(60, 10), [[40, 12], [60, 12], [60, 12], [60, 12]], { rango: '8-12' });
+      equal(p && p.w, 60, 'todas en 12: toca subir');
+      equal(p && p.goal, 12, 'dice por qué');
+      equal(progreso(tres(60, 12), [[60, 12], [60, 12], [60, 11]], { rango: '8-12' }), null, 'una en 11: todavía no');
+    });
+
+    test('con rango de reps no hace falta repetir la carga dos veces', () => {
+      const p = progreso(tres(57.5, 12), tres(60, 12), { rango: '8-12' });
+      equal(p && p.w, 60, 'recién subida, pero ya llegó a 12 en todas');
+      localStorage.setItem('loadout-rep-range', '8-12');
+      w.setSessions([session('g-1', '2026-09-23', null, [move('Press banca', tres(60, 12))])]);
+      const act = w.getActive(), fecha = act.date;
+      act.date = '2026-09-26';
+      const sola = w.progressionFor('Press banca');
+      act.date = fecha;
+      localStorage.removeItem('loadout-rep-range');
+      equal(sola && sola.w, 60, 'alcanza con una sola sesión');
+    });
+
+    test('con rango de reps, lo repetido sin llegar ya no pide subir', () => {
+      equal(progreso(tres(60, 5), tres(60, 5), { rango: '8-12' }), null, '5·5·5 dos veces: sigue sin llegar a 12');
+      equal(progreso(tres(60, 12), [[60, 12], [60, 12]], { rango: '8-12' }), null, 'menos series que la vez anterior no cuenta');
+      equal(progreso(tres(60, 12), tres(60, 12), { rango: '8-12', fechas: ['2026-08-20', '2026-08-25'] }), null, 'tras un parón, repetir');
+    });
+
+    test('con rango de reps, sin carga sigue la regla de siempre', () => {
+      const p = progreso(tres(0, 8), tres(0, 8), { nombre: 'Dominadas', rango: '8-12' });
+      equal(p && p.w, 0, 'consolidado en 8, como antes: la meta no aplica');
+      equal(progreso(tres(0, 8), tres(0, 7), { nombre: 'Dominadas', rango: '8-12' }), null, 'perder reps sigue sin contar');
+    });
+
+    group('HOY CONTRA LA ÚLTIMA VEZ');
+    // compareSets(última vez, hoy, rango): series como [peso, reps].
+    const sets = list => list.map(([weight, reps]) => ({ weight, reps }));
+    const cmp = (antes, hoy, rango = null) => w.compareSets(sets(antes), sets(hoy), rango);
+    const r812 = { min: 8, max: 12 };
+
+    test('mismo peso: más reps es superar, menos es quedar abajo', () => {
+      const c = cmp([[50, 10], [50, 10], [50, 10]], [[50, 11], [50, 10], [50, 10]]);
+      equal(c.kind, 'more', 'una rep más'); equal(c.delta, 1, 'por una'); assert(c.done, 'series completas');
+      equal(cmp([[50, 10], [50, 10]], [[50, 10], [50, 10]]).kind, 'same', 'lo mismo es igual');
+      const b = cmp([[50, 10], [50, 10]], [[50, 10], [50, 8]]);
+      equal(b.kind, 'less', 'dos menos'); equal(b.delta, -2, 'delta negativo');
+    });
+
+    test('una serie de más no infla la comparación', () => {
+      const c = cmp([[50, 10], [50, 10]], [[50, 10], [50, 9], [50, 6]]);
+      equal(c.kind, 'less', 'se comparan las 2 primeras: 19 contra 20');
+    });
+
+    test('a mitad del ejercicio el resultado es "por ahora"', () => {
+      const c = cmp([[50, 10], [50, 10], [50, 10]], [[50, 11]]);
+      equal(c.kind, 'more', 'va +1'); assert(!c.done, 'falta completar');
+    });
+
+    test('el calentamiento y las series livianas no cuentan', () => {
+      const c = cmp([[30, 12], [50, 10], [50, 10], [40, 12]], [[30, 8], [50, 10], [50, 11], [40, 6]]);
+      equal(c.kind, 'more', 'solo el trabajo con 50'); equal(c.delta, 1, '+1');
+    });
+
+    test('más peso: superado si completás las series en el mínimo del rango', () => {
+      const ok = cmp([[50, 12], [50, 12]], [[52.5, 9], [52.5, 8]], r812);
+      equal(ok.kind, 'heavier', 'subió'); assert(ok.done && !ok.low, 'en rango: superado');
+      const bajo = cmp([[50, 12], [50, 12]], [[52.5, 8], [52.5, 6]], r812);
+      assert(bajo.low, '6 reps queda bajo el mínimo');
+      assert(!cmp([[50, 12], [50, 12]], [[52.5, 8]], r812).done, 'una sola serie: falta');
+      assert(!cmp([[50, 12]], [[52.5, 3]]).low, 'sin rango no hay mínimo');
+    });
+
+    test('menos peso no se compara', () => {
+      equal(cmp([[50, 10]], [[45, 12]]).kind, 'lighter', 'descarga: neutro');
+    });
+
+    test('las series sin reps no cuentan, y sin series no hay comparación', () => {
+      equal(cmp([[50, 10]], [[60, 0]]), null, 'peso sin reps no es una serie');
+      equal(cmp([[50, 10]], []), null, 'nada anotado');
+      equal(cmp([], [[50, 10]]), null, 'nada con qué comparar');
+    });
+
+    test('el redondeo de las libras no se toma como subida', () => {
+      equal(cmp([[60, 8]], [[60.01, 9]]).kind, 'more', '132.3 lb = 60 kg');
+    });
+
+    test('sin carga se comparan las reps', () => {
+      equal(cmp([[0, 8], [0, 8]], [[0, 9], [0, 8]]).kind, 'more', 'dominadas +1');
     });
 
     group('UNIDADES (kg / lb)');
@@ -524,6 +615,8 @@ function run(frameWindow) {
     w.setCardio(realCardio);
     if (realUnit === null) localStorage.removeItem('loadout-unit');
     else localStorage.setItem('loadout-unit', realUnit);
+    if (realRange === null) localStorage.removeItem('loadout-rep-range');
+    else localStorage.setItem('loadout-rep-range', realRange);
   }
 
   summary.className = failed ? 'fail' : 'pass';

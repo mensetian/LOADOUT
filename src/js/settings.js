@@ -48,6 +48,7 @@ function syncPrefUI() {
   setSeg('#soundSeg', localStorage.getItem(SOUND_KEY) === 'off' ? 'off' : 'on');
   setSeg('#vibrateSeg', localStorage.getItem(VIBRATE_KEY) === 'off' ? 'off' : 'on');
   setSeg('#autoRestSeg', localStorage.getItem(AUTOREST_KEY) === 'off' ? 'off' : 'on');
+  setSeg('#repRangeSeg', localStorage.getItem(REP_RANGE_KEY) || 'auto');
   setSeg('#bgTimerSeg', localStorage.getItem(BGTIMER_KEY) === 'on' ? 'on' : 'off');
 }
 
@@ -70,6 +71,14 @@ document.querySelectorAll('#soundSeg button').forEach(b => b.onclick = () => { l
 document.querySelectorAll('#vibrateSeg button').forEach(b => b.onclick = () => { localStorage.setItem(VIBRATE_KEY, b.dataset.val); syncPrefUI(); });
 // AUTOREST_KEY vive en app.js, que es quien lo lee al completar una serie.
 document.querySelectorAll('#autoRestSeg button').forEach(b => b.onclick = () => { localStorage.setItem(AUTOREST_KEY, b.dataset.val); syncPrefUI(); });
+// REP_RANGE_KEY vive en app.js (progressionFor y la comparación). Las tarjetas
+// abiertas se repintan: el aviso de subir y el estado cambian con el rango.
+document.querySelectorAll('#repRangeSeg button').forEach(b => b.onclick = () => {
+  if (b.dataset.val === 'auto') localStorage.removeItem(REP_RANGE_KEY);
+  else localStorage.setItem(REP_RANGE_KEY, b.dataset.val);
+  cards().forEach(updateLast);
+  syncPrefUI();
+});
 // Apagarlo a mitad de un descanso suelta el audio en el acto, no en el siguiente.
 document.querySelectorAll('#bgTimerSeg button').forEach(b => b.onclick = () => {
   localStorage.setItem(BGTIMER_KEY, b.dataset.val);
