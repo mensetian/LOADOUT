@@ -399,6 +399,30 @@ function run(frameWindow) {
       equal(cmp([[0, 8], [0, 8]], [[0, 9], [0, 8]]).kind, 'more', 'dominadas +1');
     });
 
+    test('al cerrar cuenta cuántos superaste, sin nuevos, parones ni más livianos', () => {
+      localStorage.setItem('loadout-unit', 'kg');
+      localStorage.setItem('loadout-rep-range', '8-12');
+      w.setSessions([
+        session('h-1', '2026-08-01', null, [move('Curl', [[12, 10]])]),
+        session('h-2', '2026-09-23', null, [move('Press banca', [[50, 10], [50, 10]]), move('Remo', [[50, 12], [50, 12]]),
+          move('Fondos', [[0, 10]]), move('Sentadilla', [[80, 8]])]),
+      ]);
+      const act = w.getActive(), fecha = act.date;
+      act.date = '2026-09-26';
+      const r = w.beatenCount(session('hoy', '2026-09-26', null, [
+        move('Press banca', [[50, 11], [50, 10]]),   // +1: superado
+        move('Remo', [[52.5, 8], [52.5, 7]]),        // subió, una bajo 8: no
+        move('Fondos', [[0, 10]]),                   // igual: no
+        move('Sentadilla', [[70, 10]]),              // más liviano: no cuenta
+        move('Curl', [[12, 11]]),                    // tras un parón: no cuenta
+        move('Nuevo', [[20, 10]]),                   // sin historial: no cuenta
+      ]));
+      act.date = fecha;
+      localStorage.removeItem('loadout-rep-range');
+      equal(r.beaten, 1, 'solo el press');
+      equal(r.total, 3, 'press, remo y fondos');
+    });
+
     group('UNIDADES (kg / lb)');
 
     test('convertir a libras y volver no pierde el valor', () => {

@@ -536,6 +536,23 @@ function compareSets(prevSets, nowSets, range = repRange()) {
   const floor = range?.min || 0;
   return { ...base, kind: 'heavier', floor, low: now.some(r => r < floor) };
 }
+// Al cerrar la sesión: de los ejercicios que se pueden comparar, cuántos
+// superaron la última vez. Los récords solo miran el peso, que sube cada cinco
+// o seis sesiones; esto le da su momento a las de sumar reps. No entran los
+// nuevos, los que vuelven de un parón ni los más livianos (no se comparan).
+// Se calcula ANTES de guardar: después, la última vez sería la de hoy.
+function beatenCount(entry) {
+  let beaten = 0, total = 0;
+  for (const ex of entry.exercises) {
+    const last = getLastExercise(ex.name);
+    if (!last || gapDays(last.date) > PROGRESS_MAX_GAP_DAYS) continue;
+    const c = compareSets(last.sets, ex.sets);
+    if (!c || c.kind === 'lighter') continue;
+    total++;
+    if (c.done && (c.kind === 'more' || (c.kind === 'heavier' && !c.low))) beaten++;
+  }
+  return { beaten, total };
+}
 // Lo anotado hoy en la tarjeta, en kg: solo las series con reps (las hechas).
 const todaySets = card => $$('.set-row', card)
   .map(r => ({ weight: fromDisplay(num($('.set-weight', r).value)), reps: num($('.set-reps', r).value) }))
@@ -623,12 +640,17 @@ function updateLast(card) {
 // 60 a 62.5 en la primera y la segunda seguía ofreciendo 60, así que el toque
 // estampaba un número que ya no vale. Solo se toca ESE peso: con 40 de
 // calentamiento y 60 de trabajo, cambiar el calentamiento no mueve el trabajo.
+// Si el peso SUBE y hay rango de reps, las reps pasan al mínimo del rango: con
+// el peso nuevo la meta es el piso (62.5×8), no las 12 que hiciste con 60.
 function suggestionFor(card, r, ref = refFor($('.exercise-name', card).value)) {
   const rows = $$('.set-row', card), i = rows.indexOf(r);
   const moved = movedWeights(card, rows.slice(0, i), ref);
   const carry = sg => {
     const w = moved.get(sg.w);
-    return sg.w && w != null && w !== sg.w ? { ...sg, w, was: sg.w, prev: false, up: false } : sg;
+    if (!sg.w || w == null || w === sg.w) return sg;
+    const floor = w > sg.w ? repRange()?.min : null;
+    const reps = floor && sg.reps > floor ? floor : sg.reps;
+    return { ...sg, w, reps, was: sg.w, wasReps: sg.reps, prev: false, up: false };
   };
   const s = ref.last?.sets?.[i];
   if (s) {
@@ -679,7 +701,7 @@ function paintSuggestion(card, r, ref) {
   el.textContent = sg ? mark + pairLabel(toDisplay(sg.w), sg.reps).replace('×', '​×') + (sg.up ? ' ↑' : '') : (ref.last ? '—' : '');
   // Con el peso arrastrado, la columna ya no muestra lo de la última vez: queda
   // en el título para no perderlo.
-  el.title = sg?.was != null ? t('set.carried', { was: pairLabel(toDisplay(sg.was), sg.reps) }) : t('set.useSuggestion');
+  el.title = sg?.was != null ? t('set.carried', { was: pairLabel(toDisplay(sg.was), sg.wasReps) }) : t('set.useSuggestion');
 }
 // Aceptar la sugerencia: solo rellena lo vacío, lo tecleado a mano siempre manda.
 function applySuggestion(card, r) {
@@ -1137,13 +1159,16 @@ async function finishSession() {
   // de cuando editar y capturar compartían pantalla: se guarda como sesión
   // nueva en vez de sobrescribir el entrenamiento de aquel día.
   if (sessions.some(x => x.id === entry.id)) entry.id = crypto.randomUUID();
+  const score = beatenCount(entry);
+  const scoreLine = score.total ? t('session.beaten', { n: score.beaten, total: score.total }) : '';
   entry.updatedAt=new Date().toISOString(); // sella la edición para resolver conflictos al fusionar con Drive
   const index=sessions.findIndex(s=>s.id===entry.id); if(index>=0)sessions[index]=entry;else sessions.push(entry); save(); clearDraft(); const prs=detectPRDetails(entry); activeSession=makeSession(); renderActiveSession(); updateDashboard(); stopRest();
   const uploading = window.driveAutoSync?.();
   window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
   // Un guardado normal no interrumpe; un récord sí merece su momento.
-  if (prs.length) await showPRSheet(prs);
-  else showToast(t('session.savedToast', { n: entry.exercises.reduce((a, e) => a + e.sets.length, 0) }));
+  if (prs.length) await showPRSheet(prs, score.total ? t('session.beatenSentence', { n: score.beaten, total: score.total }) : '');
+  else showToast(t('session.savedToast', { n: entry.exercises.reduce((a, e) => a + e.sets.length, 0) })
+    + (scoreLine ? ` · ${scoreLine}` : ''), { ms: scoreLine ? 4500 : 3000 });
   // Se espera a la subida ANTES de decidir si hay que avisar: si acaba de
   // respaldar, no tiene sentido abrir un diálogo diciendo que no lo hizo.
   await uploading?.catch(()=>{});
@@ -1738,12 +1763,12 @@ function detectPRDetails(entry){
 
 // Un récord no es un guardado más: hoja propia, el valor nuevo en grande con el
 // anterior tachado al lado, y una vibración distinta de la de cada serie.
-function showPRSheet(prs) {
+function showPRSheet(prs, scoreLine = '') {
   if (navigator.vibrate && localStorage.getItem('loadout-vibrate') !== 'off') navigator.vibrate([30, 40, 30]);
   const html = `<span class="pr-eyebrow">${escapeHtml(t(prs.length > 1 ? 'pr.titleMany' : 'pr.title'))}</span>`
     + `<ul class="pr-list">${prs.map(p => `<li><strong>${escapeHtml(p.name)}</strong>`
       + `<span class="pr-vals"><b>${escapeHtml(p.now)}</b><s>${escapeHtml(p.before)}</s></span></li>`).join('')}</ul>`
-    + `<span class="pr-foot">${escapeHtml(t('pr.saved'))}</span>`;
+    + `<span class="pr-foot">${escapeHtml(t('pr.saved'))}${scoreLine ? ` ${escapeHtml(scoreLine)}` : ''}</span>`;
   return openDialog('', { html, variant: 'pr', okText: t('pr.ok') });
 }
 function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
@@ -1859,7 +1884,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:')navigator.service
 // nivel superior no quedan colgadas de `window`, así que hay que exponerlas a
 // mano para poder probarlas desde fuera. Es solo un objeto: no cambia la app.
 window.LOADOUT_TEST = {
-  e1rm, exKey, getLastExercise, progressionFor, compareSets, getActive: () => activeSession, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
+  e1rm, exKey, getLastExercise, progressionFor, compareSets, beatenCount, getActive: () => activeSession, toUnit, fromUnit, toDisplay, mergeTemplates, detectPRs, personalRecords, exercisesForRender, syncDraft,
   mergeDeleted, applyDeleted, draftInProgress, collectSession,
   getSessions: () => sessions, setSessions: v => { sessions = v; },
   getTemplates: () => templates, setTemplates: v => { templates = v; },
