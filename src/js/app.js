@@ -655,18 +655,20 @@ function addSet(card, values = {}) {
     rows.slice(rows.indexOf(node) + 1).forEach(r => paintSuggestion(card, r, ref));
   };
   wIn.addEventListener('input', () => { syncFilled(); repaintBelow(); }); rIn.addEventListener('input', syncFilled);
-  // Lo tecleado cuenta como serie completada al salir del campo (o con "Listo"),
-  // no con el primer dígito: si no, el descanso arrancaba a mitad de escribir.
+  // La serie cuenta como hecha cuando aparece el ✓ (el primer dígito de las
+  // reps), y ahí arranca el descanso. Antes se esperaba a salir del campo, pero
+  // el teclado suele quedar abierto y el descanso no arrancaba; un segundo de
+  // más tecleando "10" no cambia nada. Una vez por visita al campo y solo si la
+  // serie estaba vacía: corregir unas reps ya anotadas no reinicia el descanso.
   let filledAtFocus = false;
   const noteFocus = () => { filledAtFocus = node.classList.contains('is-filled'); };
   wIn.addEventListener('focus', noteFocus); rIn.addEventListener('focus', noteFocus);
-  rIn.addEventListener('change', () => {
-    const now = node.classList.contains('is-filled');
-    if (now && !filledAtFocus) onSetDone(node);
-    filledAtFocus = now;
+  rIn.addEventListener('input', () => {
+    if (filledAtFocus || !node.classList.contains('is-filled')) return;
+    filledAtFocus = true; onSetDone(node);
   });
   // El teclado numérico muestra "Siguiente" en el peso (salta a reps) y "Listo"
-  // en las reps (cierra el teclado, y eso completa la serie).
+  // en las reps (cierra el teclado).
   wIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rIn.focus(); } });
   rIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rIn.blur(); } });
   // Dos lugares aceptan la sugerencia: el nº de serie y la propia columna ANT.,
